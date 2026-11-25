@@ -1,0 +1,14 @@
+# FinClause - combined Python requirements for the whole backend.
+#   pip install -r requirements.txt
+#
+# Each module keeps its own requirements file; add yours below with "-r".
+
+# Person 1 - PDF/OCR extraction, clause segmentation, financial entities
+-r backend/person1_extraction/requirements.txt
+-e backend/person1_extraction
+
+# Person 2 - financial intelligence (classification, retrieval, contradictions)
+# -r backend/<person2_module>/requirements.txt
+
+# Person 3 - explanations, FastAPI integration
+# -r backend/<person3_module>/requirements.txt

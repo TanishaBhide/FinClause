@@ -1,0 +1,28 @@
+# FinClause - Person 1 (PDF / OCR / clause segmentation / financial entity extraction)
+# Python 3.10+   |   install:  pip install -r requirements.txt
+# Lightweight: no PyTorch, Transformers or Sentence Transformers.
+# For exact, tested versions use requirements-lock.txt instead.
+
+# --- PDF text extraction ---
+PyMuPDF>=1.24,<2
+
+# --- OCR (Python wrapper + image handling) ---
+pytesseract>=0.3.10,<0.4
+Pillow>=10.0
+
+# --- NLP ---
+spacy>=3.8,<3.9
+# spaCy English model (~13 MB). Installed directly so no separate download step is needed.
+# Equivalent to: python -m spacy download en_core_web_sm
+en_core_web_sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl
+
+# --- Schema / validation ---
+pydantic>=2.5,<3
+
+# --- Testing ---
+pytest>=7.4
+
+# NOT installable with pip:
+#   Tesseract OCR program (only needed for scanned PDFs)
+#     Windows: winget install --id UB-Mannheim.TesseractOCR -e
+#     Linux:   sudo apt install tesseract-ocr      macOS: brew install tesseract
