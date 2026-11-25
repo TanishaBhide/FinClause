@@ -87,7 +87,7 @@ def test_ocr_page_with_mocked_tesseract(monkeypatch: pytest.MonkeyPatch, scanned
     monkeypatch.setattr(pytesseract, "image_to_data", fake_image_to_data)
     monkeypatch.setattr(ocr_mod, "resolve_tesseract_cmd", lambda cfg: "tesseract")
     doc = pymupdf.open(scanned_pdf)
-    blocks = ocr_page(doc[0], 1, "doc_s", ExtractionConfig(ocr_dpi=100))
+    blocks = ocr_page(doc[0], 1, "doc_s", ExtractionConfig(ocr_dpi=100, ocr_preprocess=False))
     assert calls["lang"] == "eng"
     assert calls["size"][0] == pytest.approx(doc[0].rect.width * 100 / 72, abs=2)
     # coordinates are scaled with the configured DPI
@@ -146,3 +146,53 @@ def test_real_ocr_on_scanned_pdf(scanned_pdf: Path) -> None:  # pragma: no cover
     assert words and all(w.ocr_confidence is None or 0 <= w.ocr_confidence <= 100 for w in words)
     page_w, page_h = doc[0].rect.width, doc[0].rect.height
     assert all(0 <= w.bbox.x0 < w.bbox.x1 <= page_w and 0 <= w.bbox.y0 < w.bbox.y1 <= page_h for w in words)
+
+
+# ---- image preprocessing before OCR ----
+def _text_image(angle: float = 0.0):
+    from PIL import Image
+
+    from finclause_extraction.samples import SYNTHETIC_AGREEMENT, build_pdf
+
+    doc = pymupdf.open(stream=build_pdf(None, [SYNTHETIC_AGREEMENT[0]]), filetype="pdf")
+    pix = doc[0].get_pixmap(dpi=150, colorspace=pymupdf.csGRAY)
+    img = Image.frombytes("L", (pix.width, pix.height), pix.samples)
+    return img.rotate(angle, resample=Image.BICUBIC, fillcolor=255) if angle else img
+
+
+@pytest.mark.parametrize("skew", [-1.5, -0.8, 1.2, 2.0])
+def test_deskew_estimates_rotation(skew: float) -> None:
+    from finclause_extraction.pdf.ocr import estimate_skew
+
+    # a page rotated by `skew` needs a rotation of -skew to be straight
+    assert estimate_skew(_text_image(skew)) == pytest.approx(-skew, abs=0.15)
+
+
+def test_straight_page_is_not_rotated() -> None:
+    from finclause_extraction.pdf.ocr import preprocess_for_ocr
+
+    _, angle, steps = preprocess_for_ocr(_text_image())
+    assert abs(angle) < 0.2 and not any(s.startswith("deskew") for s in steps)
+    assert steps[0] == "grayscale" and steps[-1] == "otsu_binarisation"
+
+
+def test_unrotate_box_inverts_pil_rotation() -> None:
+    import numpy as np
+    from PIL import Image, ImageDraw
+
+    from finclause_extraction.pdf.ocr import unrotate_box
+
+    for angle in (10, -7, 1.3):
+        img = Image.new("L", (400, 300), 255)
+        ImageDraw.Draw(img).rectangle((300, 200, 304, 204), fill=0)
+        arr = np.asarray(img.rotate(angle, resample=Image.NEAREST, fillcolor=255))
+        ys, xs = np.where(arr < 128)
+        x0, y0, x1, y1 = unrotate_box(xs.min(), ys.min(), xs.max() - xs.min(), ys.max() - ys.min(), angle, 200, 150)
+        assert (x0, y0) == pytest.approx((300, 200), abs=1.5) and (x1, y1) == pytest.approx((304, 204), abs=1.5)
+
+
+def test_noise_tokens_dropped_but_symbols_kept() -> None:
+    from finclause_extraction.pdf.ocr import is_noise_token
+
+    assert is_noise_token(".", 20) and is_noise_token(")", 10)
+    assert not is_noise_token("%", 20) and not is_noise_token(".", 95) and not is_noise_token("1.", 20)

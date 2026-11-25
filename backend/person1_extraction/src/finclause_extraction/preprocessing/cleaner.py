@@ -11,7 +11,8 @@ What cleaning does
     * re-joins words hyphenated across line breaks (``pay-\\nment`` -> ``payment``)
       while keeping real compound hyphens (``pre-\\npayment`` -> ``pre-payment``);
     * turns single line breaks into spaces, keeps paragraph breaks as ``\\n``;
-    * collapses repeated spaces.
+    * collapses repeated spaces;
+    * repairs OCR spaces inside currency amounts (``Rs. 3, 000`` -> ``Rs. 3,000``).
 
 What cleaning never does
     It never removes or rewrites digits, currency symbols (``₹``, ``Rs.``, ``INR``),
@@ -52,6 +53,9 @@ _SOFT_HYPHEN_BREAK_RE = re.compile(r"­[ \t]*\n[ \t]*")
 _HYPHEN_BREAK_RE = re.compile(r"(\b[A-Za-z]+)-[ \t]*\n[ \t]*([a-z])")
 _NEWLINES_RE = re.compile(r"[ \t]*\n[\s]*")
 _MULTI_SPACE_RE = re.compile(r" {2,}")
+#: OCR often inserts a space after a thousands separator ("Rs. 3, 000"). Repaired only right after a
+#: currency marker, so lists such as "12, 24 and 36 months" are never merged.
+_OCR_DIGIT_GROUP_RE = re.compile(r"((?:₹|\bRs\.?|\bINR)\s?\d{1,3}(?:,\d{2,3})*,) (\d{2,3}(?!\d))", re.I)
 
 
 @dataclass
@@ -148,6 +152,8 @@ def clean_text(original: str, preserve_paragraphs: bool = True) -> CleanedText:
     text, mapping = _apply(text, mapping, _HYPHEN_BREAK_RE, _dehyphenate)
     text, mapping = _apply(text, mapping, _NEWLINES_RE, _newlines(preserve_paragraphs))
     text, mapping = _apply(text, mapping, _MULTI_SPACE_RE, lambda m: [("lit", " ")])
+    for _ in range(3):  # "Rs. 1, 25, 000" needs two passes
+        text, mapping = _apply(text, mapping, _OCR_DIGIT_GROUP_RE, lambda m: [("grp", 1), ("grp", 2)])
 
     # strip leading/trailing whitespace
     start = 0

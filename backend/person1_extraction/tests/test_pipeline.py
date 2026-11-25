@@ -153,7 +153,7 @@ def test_scanned_pdf_with_mocked_ocr(scanned_pdf: Path, monkeypatch: pytest.Monk
     monkeypatch.setattr("finclause_extraction.pipeline.check_tesseract", lambda cfg: "5.3.0 (mocked)")
     monkeypatch.setattr(ocr_mod, "resolve_tesseract_cmd", lambda cfg: "tesseract")
     monkeypatch.setattr(pytesseract, "image_to_data", lambda image, lang, output_type: fake)
-    result = analyze_pdf(scanned_pdf, use_ocr=True)
+    result = analyze_pdf(scanned_pdf, use_ocr=True, config=ExtractionConfig(ocr_preprocess=False))
     assert result.extraction_status == "success"
     assert result.metadata.ocr_used and result.metadata.ocr_pages == [1]
     assert result.pages[0].extraction_method == "ocr" and result.pages[0].ocr_applied
@@ -217,7 +217,7 @@ def test_sample_text_matches_pdf_extraction(agreement_pdf: Path) -> None:
 
 @pytest.mark.skipif(ocr_mod.resolve_tesseract_cmd(ExtractionConfig()) is None, reason="Tesseract OCR binary not installed")
 def test_scanned_pdf_real_ocr_end_to_end(scanned_pdf: Path) -> None:  # pragma: no cover - environment dependent
-    result = analyze_pdf(scanned_pdf, use_ocr=True)
+    result = analyze_pdf(scanned_pdf, use_ocr=True)  # default path: with OCR preprocessing
     assert result.extraction_status == "success"
     assert result.metadata.ocr_used and result.metadata.ocr_pages == [1]
     assert result.metadata.tesseract_version

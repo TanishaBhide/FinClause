@@ -62,6 +62,11 @@ DATE_MONTH_YEAR_RE = re.compile(rf"(?<!\w)(?P<mon>{_MONTH_ALT})\.?,?\s+(?P<y>(?:
 _NUMWORD_ALT = "|".join(sorted((re.escape(w) for w in WORD_NUMBERS), key=len, reverse=True))
 # "EM[Il1]" also accepts the frequent OCR confusions "EMl"/"EM1" for "EMI" (I vs l vs 1).
 DURATION_UNIT = r"months?|years?|yrs?|days?|weeks?|quarters?|(?:equated\s+monthly\s+)?instal(?:l)?ments?|EM[Il1]s?"
+#: "12 to 24 months" / "3, 6 and 9 months" -> one duration entity with a range / list of options.
+DURATION_RANGE_RE = re.compile(
+    rf"(?<![\w.,])(?P<lo>\d+)\s*(?:to|-|–)\s*(?P<hi>\d+)\s*(?P<unit>{DURATION_UNIT})(?![a-z])", re.I)
+DURATION_LIST_RE = re.compile(
+    rf"(?<![\w.,])(?P<items>\d+(?:\s*,\s*\d+)*)\s*,?\s+(?P<conj>and|or)\s+(?P<last>\d+)\s*(?P<unit>{DURATION_UNIT})(?![a-z])", re.I)
 DURATION_RE = re.compile(
     rf"(?<![\w.,])(?:(?P<word>{_NUMWORD_ALT})\s+(?:\(\s?(?P<paren>\d+)\s?\)\s+)?"
     rf"|(?P<num>\d+(?:\.\d+)?)\s{{0,2}}(?:\(\s?[a-z][a-z\- ]*\s?\)\s+)?)(?P<unit>{DURATION_UNIT})(?![a-z])",
@@ -70,7 +75,8 @@ DURATION_RE = re.compile(
 
 _ORD_ALT = "|".join(sorted((re.escape(w) for w in ORDINAL_WORDS), key=len, reverse=True))
 DUE_DAY_RE = re.compile(
-    rf"(?P<day>\d{{1,2}}(?:st|nd|rd|th)?|{_ORD_ALT}|last)\s+(?:day\s+)?of\s+(?:every|each|the)\s+"
+    # (?:\s*[.,;:])? tolerates a stray OCR speck such as "10th . of every month"
+    rf"(?P<day>\d{{1,2}}(?:st|nd|rd|th)?|{_ORD_ALT}|last)(?:\s*[.,;:])?\s+(?:day\s+)?of\s+(?:every|each|the)\s+"
     rf"(?:calendar\s+|english\s+calendar\s+)?month",
     re.I,
 )
@@ -79,11 +85,12 @@ DUE_DAY_RE = re.compile(
 # Context helpers (applied to the text right before/after a value)
 # --------------------------------------------------------------------------- #
 BASIS_RE = re.compile(
-    r"^\s*(?:of|on|over)\s+(?:the\s+|such\s+|any\s+)?(?P<basis>(?:(?:total|entire|outstanding|sanctioned|disbursed|"
+    r"^\s*(?P<prep>of|on|over)\s+(?:the\s+|such\s+|any\s+)?(?P<basis>(?:(?:total|entire|outstanding|sanctioned|disbursed|"
     r"overdue|unpaid|principal|loan|prepaid|pre-paid|foreclosed|defaulted|monthly|future|due)\s+){0,3}"
     r"(?:loan\s+amount|loan|principal(?:\s+outstanding|\s+amount)?|outstanding(?:\s+principal|\s+amount|\s+balance)?|"
     r"amount\s+(?:pre-?paid|outstanding|overdue|due)|overdue\s+amount|emi(?:\s+amount)?|instal(?:l)?ment(?:\s+amount)?|"
-    r"amount|balance|sum))\b",
+    r"(?:basic\s+)?sum\s+(?:insured|assured)|(?:admissible\s+)?claim(?:\s+amount)?|(?:order|purchase|transaction|product)\s+"
+    r"(?:value|amount|price)|interest(?:\s+amount)?|premium|amount|balance|sum))\b",
     re.I,
 )
 FOLLOWING_CONNECTOR_RE = re.compile(
@@ -139,6 +146,37 @@ QUALIFIER_RE = re.compile(
 )
 RATE_TYPE_RE = re.compile(r"\b(fixed|floating|variable)\b", re.I)
 
+#: Sentence-level conditions beyond repayment/variable rate. Each needs at least one cue.
+DEFAULT_CUES_RE = re.compile(
+    r"\b(events?\s+of\s+default|in\s+(?:case|the\s+event)\s+of\s+(?:any\s+)?default|default\s+in\s+(?:payment|repayment)|"
+    r"recall\s+the\s+(?:entire\s+)?(?:loan|facility|outstanding)|(?:immediately\s+)?due\s+and\s+payable|legal\s+(?:action|proceedings)|"
+    r"credit\s+(?:information\s+compan(?:y|ies)|bureau\w*)|cibil|right\s+of\s+set[-\s]?off|set[-\s]?off|repossess\w*|"
+    r"recovery\s+(?:agents?|proceedings)|sarfaesi|wilful\s+defaulter|(?:affect|impact)\w*\s+(?:your\s+)?credit\s+score)\b",
+    re.I,
+)
+EXCLUSION_CUES_RE = re.compile(
+    r"\b(not\s+(?:be\s+)?covered|(?:are|is|shall\s+be|will\s+be)\s+excluded|exclusions?|not\s+(?:be\s+)?payable|"
+    r"will\s+not\s+(?:pay|be\s+paid|be\s+liable)|shall\s+not\s+be\s+liable|not\s+(?:be\s+)?admissible|not\s+eligible|"
+    r"does\s+not\s+cover)\b",
+    re.I,
+)
+CANCELLATION_CUES_RE = re.compile(
+    r"\b(cancel\w*|free[-\s]look|(?<!non-)(?<!non )refund\w*|cooling[-\s]off|returns?\s+(?:of\s+)?the\s+(?:product|order|item)|"
+    r"(?:product|order|item)\s+is\s+returned|withdraw\s+from|look[-\s]up\s+period)\b",
+    re.I,
+)
+DISCRETION_CUES_RE = re.compile(
+    r"\b(sole\s+(?:and\s+absolute\s+)?discretion|absolute\s+discretion|own\s+discretion|reserves?\s+the\s+right|"
+    r"without\s+(?:any\s+)?(?:prior\s+)?(?:notice|intimation)|at\s+any\s+time\s+without|as\s+may\s+be\s+(?:decided|determined)\s+by)\b",
+    re.I,
+)
+SECURITY_CUES_RE = re.compile(
+    r"\b(guarant(?:ee|or|ors|eed)|collateral|security\s+(?:interest|deposit)|hypothecat\w+|"
+    r"mortgag\w+|lien|pledg\w+|post-?dated\s+cheques?\s+as\s+security)\b|^\W*\d*\.?\s*(security)\b",
+    re.I,
+)
+NO_COST_EMI_RE = re.compile(r"\bno[-\s]cost\s+emi\b", re.I)
+
 # --------------------------------------------------------------------------- #
 # Trigger lexicon (spaCy span_ruler phrase patterns, matched on LOWER)
 # --------------------------------------------------------------------------- #
@@ -170,7 +208,8 @@ TRIGGERS: dict[str, list[str]] = {
     "PREPAYMENT": [
         "prepayment", "pre-payment", "pre payment", "part prepayment", "part-prepayment", "part payment",
         "part-payment", "prepay", "prepaid", "prepayment charge", "prepayment charges", "prepayment penalty",
-        "prepayment fee", "part prepayment charges",
+        "prepayment fee", "part prepayment charges", "part-prepayment charges", "part-prepayment charge",
+        "part-payment charges",
     ],
     "LOAN_AMOUNT": [
         "loan amount", "amount of loan", "amount of the loan", "principal amount", "sanctioned amount",
@@ -188,16 +227,30 @@ TRIGGERS: dict[str, list[str]] = {
     "TENURE": [
         "tenure", "tenor", "term of the loan", "loan term", "loan tenure", "repayment period", "period of the loan",
         "repayable in", "repayable over", "repaid in", "repaid over", "repayment term", "loan period",
-        "repayment tenure",
+        "repayment tenure", "emi tenure", "emi tenures", "tenures", "policy period", "policy term",
     ],
     "TAX": ["gst", "goods and services tax", "service tax", "tax", "taxes", "cess", "tds"],
     "OTHER_CHARGE": [
         "documentation charge", "documentation charges", "documentation fee", "stamp duty", "legal charges",
-        "legal fee", "insurance premium", "valuation charges", "swap charges", "statement charges",
+        "legal fee", "valuation charges", "swap charges", "statement charges",
         "duplicate statement", "noc charges", "cancellation charges", "annual maintenance charge",
         "service charge", "service charges", "convenience fee", "collection charges", "repossession charges",
+        "annual fee", "discount", "instant discount", "upfront discount", "interest discount", "cashback",
+        "no claim bonus", "cumulative bonus", "deductible", "orders above", "order value", "minimum order value",
         "charge", "charges", "fee", "fees",
     ],
+    # --- insurance / consumer-credit vocabulary ---
+    "PREMIUM": ["premium", "premiums", "annual premium", "premium amount", "insurance premium", "total premium",
+                "premium payable"],
+    "SUM_INSURED": ["sum insured", "basic sum insured", "sum assured", "cover amount", "coverage amount",
+                    "insured amount", "cover of", "coverage of"],
+    "CO_PAYMENT": ["co-payment", "co-pay", "copayment", "co payment"],
+    "LIMIT": ["room rent", "room rent limit", "sub-limit", "sub-limits", "sublimit", "icu charges",
+              "room rent charges"],
+    "WAITING": ["waiting period", "initial waiting period", "specific waiting period", "pre-existing disease waiting period"],
+    "GRACE": ["grace period"],
+    "VALIDITY": ["valid for", "validity", "valid till", "valid until", "valid up to", "offer valid"],
+    "CANCEL": ["free look period", "free-look period", "free look", "cancellation", "cancel", "refund"],
 }
 
 #: Generic trigger words whose meaning can be overridden by a specific trigger that follows.

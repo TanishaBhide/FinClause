@@ -111,3 +111,16 @@ def test_empty_and_whitespace_input() -> None:
 
 def test_control_characters_removed() -> None:
     assert clean_text("Rs.\x00 500\x07 only").text == "Rs. 500 only"
+
+
+def test_ocr_space_inside_currency_amount_repaired() -> None:
+    c = clean_text("subject to a minimum of\nRs. 3, 000, shall be deducted; INR 1, 25, 000 only")
+    assert "Rs. 3,000, shall" in c.text and "INR 1,25,000 only" in c.text
+    i = c.text.index("Rs. 3,000")
+    s, e = c.to_original_span(i, i + len("Rs. 3,000"))
+    assert c.original[s:e] == "Rs. 3, 000"
+
+
+def test_lists_of_numbers_are_not_merged() -> None:
+    assert clean_text("tenures of 12, 24 and 36 months").text == "tenures of 12, 24 and 36 months"
+    assert clean_text("on days 3, 6, 9").text == "on days 3, 6, 9"

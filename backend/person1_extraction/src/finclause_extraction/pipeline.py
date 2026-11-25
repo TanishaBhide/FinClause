@@ -38,7 +38,7 @@ from .pdf.extractor import (
     open_pdf,
     read_pdf_bytes,
 )
-from .pdf.ocr import OCRProcessingError, OCRUnavailableError, check_tesseract, ocr_page
+from .pdf.ocr import OCRProcessingError, OCRUnavailableError, check_tesseract, ocr_page_with_info
 from .preprocessing.segmenter import SegmentedClause, segment_pages
 from .schemas import (
     BoundingBox,
@@ -53,7 +53,9 @@ from .schemas import (
     ExtractionWarning,
     Page,
     SentenceSpan,
+    WarningLocation,
 )
+from .summary import build_key_points, detect_document_type, simplify_text
 from .text_input import pages_from_text
 
 logger = logging.getLogger(__name__)
@@ -159,20 +161,25 @@ class ExtractionPipeline:
 
             want_ocr = cfg.use_ocr and (assessment.needs_ocr or (cfg.force_ocr and not assessment.is_empty))
             method, ocr_applied = ExtractionMethod.NATIVE, False
+            whole_page = [WarningLocation(page_number=number, bbox=BoundingBox(
+                x0=0, y0=0, x1=round(page.rect.width, 2), y1=round(page.rect.height, 2)))]
+
+            def warn(code: str, message: str, severity: str = "warning") -> None:
+                warnings.append(ExtractionWarning(code=code, message=message, severity=severity,
+                                                  page_number=number, locations=whole_page))
 
             if assessment.is_empty:
                 state["empty_pages"].append(number)
-                warnings.append(ExtractionWarning(code="EMPTY_PAGE", message="Page has no text, images or drawings.", page_number=number))
+                warn("EMPTY_PAGE", "This page has no text, images or drawings, so nothing was extracted from it. "
+                                   "If the printed document has content here, the PDF may be incomplete.", "info")
             elif assessment.needs_ocr and not cfg.use_ocr:
                 state["unextracted_pages"].append(number)
-                warnings.append(ExtractionWarning(
-                    code="OCR_DISABLED",
-                    message=f"Page needs OCR ({assessment.reason}) but OCR is disabled; its text was not extracted.",
-                    page_number=number))
+                warn("OCR_DISABLED", f"This page looks scanned ({assessment.reason}), but OCR is switched off, so its "
+                                     "text was NOT read and any terms on it are missing from the results. "
+                                     "Turn OCR on to read it.")
             elif 0 < assessment.native_char_count < cfg.min_native_chars and not assessment.needs_ocr:
-                warnings.append(ExtractionWarning(code="LOW_TEXT_PAGE",
-                                                  message=f"Only {assessment.native_char_count} characters of text.",
-                                                  page_number=number))
+                warn("LOW_TEXT_PAGE", f"Only {assessment.native_char_count} characters of text were found on this page. "
+                                      "Check that no content is missing.", "info")
 
             if want_ocr:
                 if ocr_available is None:
@@ -185,22 +192,22 @@ class ExtractionPipeline:
                 if ocr_available:
                     try:
                         logger.info("Running OCR on page %d (%s)", number, assessment.reason or "force_ocr")
-                        ocr_blocks = ocr_page(page, number, document_id, replace(cfg, include_words=True))
+                        ocr_result = ocr_page_with_info(page, number, document_id, replace(cfg, include_words=True))
+                        ocr_blocks = ocr_result.blocks
                         ocr_chars = sum(len("".join(b.text.split())) for b in ocr_blocks)
                         if assessment.needs_ocr or ocr_chars > assessment.native_char_count:
                             blocks, method, ocr_applied = ocr_blocks, ExtractionMethod.OCR, True
                         else:
-                            warnings.append(ExtractionWarning(code="OCR_NOT_USED",
-                                                              message="Native text kept: OCR produced less text.",
-                                                              page_number=number))
+                            warn("OCR_NOT_USED", "OCR was run but produced less text than the PDF's own text layer, "
+                                                 "so the text layer was kept.", "info")
                     except (OCRProcessingError, OCRUnavailableError) as exc:
-                        warnings.append(ExtractionWarning(code=getattr(exc, "code", "OCR_FAILED"), message=str(exc), page_number=number))
+                        warn(getattr(exc, "code", "OCR_FAILED"), str(exc))
                 if assessment.needs_ocr and not ocr_applied:
                     state["unextracted_pages"].append(number)
                     if ocr_available is False:
-                        warnings.append(ExtractionWarning(code="PAGE_NOT_EXTRACTED",
-                                                          message=f"Page needs OCR ({assessment.reason}) but Tesseract is unavailable.",
-                                                          page_number=number))
+                        warn("PAGE_NOT_EXTRACTED", f"This page looks scanned ({assessment.reason}) but Tesseract OCR is "
+                                                   "not installed, so its text was not read. See the OCR_UNAVAILABLE "
+                                                   "warning for installation steps.")
 
             if ocr_applied:
                 state["ocr_pages"].append(number)
@@ -210,7 +217,15 @@ class ExtractionPipeline:
                 method = ExtractionMethod.NONE
             if assessment.needs_ocr and not ocr_applied:
                 method = ExtractionMethod.NATIVE if blocks else ExtractionMethod.NONE
-            pages.append(build_page(page, number, blocks, assessment, method, ocr_applied))
+            built = build_page(page, number, blocks, assessment, method, ocr_applied)
+            built.assessment_reason = assessment.reason
+            if ocr_applied:
+                built.ocr_deskew_angle = ocr_result.deskew_angle
+                built.ocr_preprocessing = ocr_result.preprocessing
+                confs = [w.ocr_confidence for b in blocks for l in b.lines for w in l.words if w.ocr_confidence is not None]
+                built.ocr_word_count = sum(len(l.words) for b in blocks for l in b.lines)
+                built.ocr_mean_confidence = round(sum(confs) / len(confs), 1) if confs else None
+            pages.append(built)
         return pages, state
 
     def _finish(self, pages: list[Page], info: DocumentInfo, warnings: list[ExtractionWarning],
@@ -222,11 +237,27 @@ class ExtractionPipeline:
 
         segmentation = segment_pages(pages, cfg)
         segs = segmentation.clauses
+        line_boxes = {l.line_id: l.bbox for p in pages for b in p.blocks for l in b.lines}
         if segmentation.artifacts:
             warnings.append(ExtractionWarning(
-                code="HEADER_FOOTER_EXCLUDED",
-                message=f"{len(segmentation.artifacts)} header/footer/page-number lines excluded from clauses "
-                        "(listed in metadata.excluded_artifact_lines)."))
+                code="HEADER_FOOTER_EXCLUDED", severity="info",
+                message=f"{len(segmentation.artifacts)} running header/footer or page-number lines were left out of the "
+                        "clauses so they do not break clauses that continue across pages. They are still in 'pages'.",
+                locations=[WarningLocation(page_number=a.page_number, bbox=line_boxes.get(a.line_id), text=a.text)
+                           for a in segmentation.artifacts]))
+        for page in pages:
+            if not page.ocr_applied:
+                continue
+            low = [(w, l) for b in page.blocks for l in b.lines for w in l.words
+                   if w.ocr_confidence is not None and w.ocr_confidence < cfg.low_ocr_confidence and any(c.isalnum() for c in w.text)]
+            if low:
+                warnings.append(ExtractionWarning(
+                    code="LOW_OCR_CONFIDENCE", page_number=page.page_number,
+                    message=f"{len(low)} word(s) on page {page.page_number} were read by OCR with confidence below "
+                            f"{cfg.low_ocr_confidence:g}%. They may be misread (e.g. 'I' vs 'l', '0' vs 'O'); "
+                            "check them against the scan, especially numbers.",
+                    locations=[WarningLocation(page_number=page.page_number, bbox=w.bbox,
+                                               text=f"{w.text} ({w.ocr_confidence:g}%)") for w, _ in low]))
 
         by_id = {s.clause.clause_id: s.clause for s in segs}
         contexts = [
@@ -261,6 +292,34 @@ class ExtractionPipeline:
         if not segs:
             warnings.append(ExtractionWarning(code="NO_TEXT_EXTRACTED", message="No text could be extracted from the document."))
 
+        def entity_location(e: Entity) -> WarningLocation:
+            return WarningLocation(page_number=e.page_number, bbox=BoundingBox.union(e.bboxes),
+                                   text=e.surface_text, entity_id=e.entity_id, clause_id=e.clause_id)
+
+        ambiguous = [e for e in entities if e.attributes.get("date_order_assumed")]
+        if ambiguous:
+            warnings.append(ExtractionWarning(
+                code="AMBIGUOUS_DATE",
+                message=f"{len(ambiguous)} date(s) such as '{ambiguous[0].surface_text}' could be read day-first or "
+                        f"month-first. They were read as {cfg.date_order} (Indian convention). Confirm the intended date.",
+                locations=[entity_location(e) for e in ambiguous]))
+        unknown = [e for e in entities if e.label in ("OTHER_PERCENTAGE", "OTHER_FINANCIAL_AMOUNT")
+                   and not e.attributes.get("related_to")]
+        if unknown:
+            warnings.append(ExtractionWarning(
+                code="UNCLASSIFIED_VALUE", severity="info",
+                message=f"{len(unknown)} amount(s)/percentage(s) were found, but the surrounding words do not say what "
+                        "they are for, so they were given a generic label instead of guessing. Read these clauses manually.",
+                locations=[entity_location(e) for e in unknown]))
+
+        doc_type, doc_evidence = detect_document_type("\n".join(s.clause.cleaned_text for s in segs))
+        key_points = []
+        if cfg.generate_summary:
+            for seg in segs:
+                if seg.clause.clause_type not in (ClauseType.HEADING.value, ClauseType.SECTION.value):
+                    seg.clause.simplified_text = simplify_text(seg.clause.cleaned_text)
+            key_points = build_key_points([s.clause for s in segs], entities)
+
         if not cfg.include_words:
             for page in pages:
                 for block in page.blocks:
@@ -281,6 +340,8 @@ class ExtractionPipeline:
             offset_reference=OFFSET_REFERENCE,
             excluded_artifact_lines=segmentation.artifacts,
             label_counts=dict(sorted(Counter(e.label for e in entities).items())),
+            document_type=doc_type,
+            document_type_evidence=doc_evidence,
             processing_time_seconds=round(time.perf_counter() - started, 3),
         )
         result = ExtractionResult(
@@ -292,6 +353,7 @@ class ExtractionPipeline:
             pages=pages,
             clauses=[s.clause for s in segs],
             entities=entities,
+            key_points=key_points,
             warnings=warnings,
             metadata=metadata,
         )

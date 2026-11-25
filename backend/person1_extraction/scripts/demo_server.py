@@ -20,7 +20,6 @@ import sys
 import threading
 import webbrowser
 from collections import OrderedDict
-from dataclasses import replace
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -36,6 +35,7 @@ except ImportError:
 import pymupdf  # noqa: E402
 
 from finclause_extraction import ExtractionConfig, analyze_pdf_bytes  # noqa: E402
+from finclause_extraction.demo_documents import DEMO_DOCUMENTS, list_demo_documents  # noqa: E402
 from finclause_extraction.samples import SYNTHETIC_AGREEMENT, build_pdf, build_scanned_pdf  # noqa: E402
 
 logger = logging.getLogger("demo_server")
@@ -95,7 +95,7 @@ def make_handler(store: DocumentStore, base_config: ExtractionConfig):
             self._json({"error": message}, status)
 
         def _analyze(self, data: bytes, filename: str, use_ocr: bool) -> None:
-            cfg = replace(base_config, include_words=False)
+            cfg = base_config  # word boxes are kept: the viewer shows what OCR read, word by word
             result = analyze_pdf_bytes(data, filename, use_ocr=use_ocr, config=cfg)
             if result.extraction_status != "failed":
                 store.put(result.document_id, data)
@@ -108,6 +108,21 @@ def make_handler(store: DocumentStore, base_config: ExtractionConfig):
                 self._send(200, DEMO_PAGE.read_bytes(), "text/html; charset=utf-8")
             elif url.path == "/api/health":
                 self._json({"status": "ok"})
+            elif url.path == "/api/demos":
+                self._json(list_demo_documents())
+            elif url.path.startswith("/api/demo/") and url.path.endswith(".pdf"):
+                doc = DEMO_DOCUMENTS.get(url.path[len("/api/demo/"):-4])
+                if doc is None:
+                    return self._error(404, "unknown demo document")
+                scanned = parse_qs(url.query).get("scanned", ["0"])[0] == "1"
+                body = doc.build(scanned=scanned)
+                self.send_response(200)
+                self.send_header("Content-Type", "application/pdf")
+                self.send_header("Content-Length", str(len(body)))
+                self.send_header("Content-Disposition",
+                                 f'attachment; filename="{doc.doc_id}{"_scanned" if scanned else ""}.pdf"')
+                self.end_headers()
+                self.wfile.write(body)
             elif url.path.startswith("/api/page/"):
                 parts = url.path.split("/")  # ['', 'api', 'page', doc_id, '3.png']
                 if len(parts) != 5 or not parts[4].endswith(".png"):
@@ -138,6 +153,13 @@ def make_handler(store: DocumentStore, base_config: ExtractionConfig):
                     data = self.rfile.read(length)
                     filename = Path(unquote(self.headers.get("X-Filename") or "upload.pdf")).name
                     self._analyze(data, filename, use_ocr)
+                elif url.path.startswith("/api/demo/"):
+                    doc = DEMO_DOCUMENTS.get(url.path[len("/api/demo/"):])
+                    if doc is None:
+                        return self._error(404, "unknown demo document")
+                    scanned = query.get("scanned", ["0"])[0] == "1"
+                    name = f"{doc.doc_id}{'_scanned' if scanned else ''}.pdf"
+                    self._analyze(doc.build(scanned=scanned), name, use_ocr)
                 elif url.path == "/api/sample":
                     kind = query.get("kind", ["digital"])[0]
                     if kind == "scanned":

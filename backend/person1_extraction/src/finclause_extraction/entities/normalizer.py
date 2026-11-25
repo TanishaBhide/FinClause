@@ -256,6 +256,17 @@ def normalize_duration(number: Optional[str], word: Optional[str], unit: str) ->
     return Normalized(f"{decimal_to_str(value)} {canon}", value, canon, None, attrs)
 
 
+def normalize_duration_options(values: list[str], unit: str, kind: str) -> Normalized:
+    """``12 to 24 months`` (kind="range") or ``3, 6 and 9 months`` (kind="options")."""
+    base = normalize_duration(values[-1], None, unit)
+    nums = [str(int(v)) for v in values]
+    if kind == "range":
+        text, attrs = f"{nums[0]} to {nums[-1]} {base.unit}", {"duration_range": nums}
+    else:
+        text, attrs = f"{', '.join(nums[:-1])} or {nums[-1]} {base.unit}", {"duration_options": nums}
+    return Normalized(text, base.numeric, base.unit, None, attrs)
+
+
 def parse_ordinal_day(text: str) -> Optional[int | str]:
     """``"5th"`` -> 5, ``"fifth"`` -> 5, ``"last"`` -> ``"last"``."""
     t = text.strip().lower()

@@ -6,6 +6,7 @@ import pytest
 
 from finclause_extraction.config import ExtractionConfig
 from finclause_extraction.entities.ner import ClauseContext, FinancialEntityExtractor, find_value_candidates
+from finclause_extraction.schemas import SENTENCE_LEVEL_LABELS
 
 
 @pytest.fixture(scope="module")
@@ -21,7 +22,7 @@ def ents(extractor, text: str, **ctx):
 def values(extractor, text: str, **ctx):
     """Only value entities (exclude sentence-level conditions)."""
     return [(l, s) for l, s, e in ents(extractor, text, **ctx)
-            if l not in ("REPAYMENT_CONDITION", "VARIABLE_INTEREST_CONDITION")]
+            if l not in SENTENCE_LEVEL_LABELS]
 
 
 @pytest.mark.parametrize(
@@ -126,7 +127,9 @@ def test_loan_amount_emi_and_tenure(extractor) -> None:
 
 def test_duration_that_is_not_tenure(extractor) -> None:
     out = values(extractor, "A grace period of thirty (30) days is allowed before penal interest applies.")
-    assert ("DURATION", "thirty (30) days") in out
+    assert ("GRACE_PERIOD", "thirty (30) days") in out
+    out = values(extractor, "Foreclosure is allowed only after 12 months from disbursement.")
+    assert ("DURATION", "12 months") in out
 
 
 def test_dates(extractor) -> None:

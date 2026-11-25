@@ -63,6 +63,8 @@ class SegLine:
     block_line_count: int
     next_text_in_block: Optional[str]
     next_is_bold: Optional[bool]
+    row_continuation: bool = False  #: next cell of a table row (block to the right, same row)
+    row_start: bool = False  #: first cell of a table row
 
 
 @dataclass
@@ -97,6 +99,7 @@ class _Node:
     awaiting_body: bool = False
     first_x0: float = 0.0
     index: int = 0
+    is_table_row: bool = False
 
     @property
     def parts(self) -> tuple[int, ...]:
@@ -384,7 +387,17 @@ class _TreeBuilder:
 
     # -- main entry --
     def feed(self, line: SegLine) -> None:
+        if line.row_continuation and self.current is not None:
+            self.current.lines.append(line)  # next cell of the same table row
+            self.current.is_table_row = True
+            self.prev = line
+            return
         marker = self.detector.detect(line, self.prev)
+        if line.row_start and marker is None:
+            self._new_paragraph(line)  # each table row is its own clause
+            self.current.is_table_row = True
+            self.prev = line
+            return
         if marker is not None:
             self._start_marked(marker, line)
         elif self._is_heading(line):
@@ -478,6 +491,13 @@ class _TreeBuilder:
                 self._new_paragraph(line)
             return
         same_block = self.prev is not None and self.prev.block_id == line.block_id
+        if cur.is_table_row and not same_block:
+            if line.block_id in {l.block_id for l in cur.lines}:
+                line.row_continuation = True  # wrapped line of an earlier cell in this row
+                cur.lines.append(line)
+            else:
+                self._new_paragraph(line)
+            return
         if same_block or not ends_terminal(cur.lines[-1].text) or _starts_lower(line.text):
             cur.lines.append(line)
         else:
@@ -509,7 +529,41 @@ def _collect_lines(pages: list[Page]) -> list[SegLine]:
                         next_is_bold=nxt.is_bold if nxt else None,
                     )
                 )
+    _mark_table_rows(out)
     return out
+
+
+def _mark_table_rows(lines: list[SegLine]) -> None:
+    """Detect table rows.
+
+    A line that starts to the right of the previous line on the same page and overlaps it
+    vertically is the next cell of the same row (cells may be separate blocks or separate
+    lines of one block, depending on how the PDF was produced). The first cell of such a
+    row gets ``row_start``; every following cell gets ``row_continuation``.
+    """
+    def same_row(a: SegLine, b: SegLine) -> bool:
+        overlap = min(a.bbox.y1, b.bbox.y1) - max(a.bbox.y0, b.bbox.y0)
+        return a.page_number == b.page_number and overlap >= 0.5 * max(1.0, min(a.bbox.y1 - a.bbox.y0, b.bbox.y1 - b.bbox.y0))
+
+    # reading order inside a row: a cell emitted before the cell to its left is moved back
+    for _ in range(3):
+        swapped = False
+        for i in range(1, len(lines)):
+            a, b = lines[i - 1], lines[i]
+            if same_row(a, b) and b.bbox.x1 <= a.bbox.x0 - 6:
+                lines[i - 1], lines[i] = b, a
+                swapped = True
+        if not swapped:
+            break
+    for prev, line in zip(lines, lines[1:]):
+        if prev.page_number != line.page_number:
+            continue
+        overlap = min(prev.bbox.y1, line.bbox.y1) - max(prev.bbox.y0, line.bbox.y0)
+        height = max(1.0, min(line.bbox.y1 - line.bbox.y0, prev.bbox.y1 - prev.bbox.y0))
+        if line.bbox.x0 >= prev.bbox.x1 + 6 and overlap >= 0.5 * height:
+            line.row_continuation = True
+            if not prev.row_continuation:
+                prev.row_start = True
 
 
 def _materialize(nodes: list[_Node]) -> list[SegmentedClause]:
@@ -526,7 +580,8 @@ def _materialize(nodes: list[_Node]) -> list[SegmentedClause]:
         pos = 0
         for i, line in enumerate(n.lines):
             if i > 0:
-                sep = "\n" if n.lines[i - 1].block_id == line.block_id else "\n\n"
+                # "\t" joins cells of one table row (cleaned to a space, so the row reads as one sentence)
+                sep = "\t" if line.row_continuation else "\n" if n.lines[i - 1].block_id == line.block_id else "\n\n"
                 parts.append(sep)
                 pos += len(sep)
             spans.append(LineSpan(line, pos, pos + len(line.text)))

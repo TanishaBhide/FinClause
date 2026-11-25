@@ -68,10 +68,29 @@ class EntityLabel(str, Enum):
     OTHER_FINANCIAL_AMOUNT = "OTHER_FINANCIAL_AMOUNT"
     REPAYMENT_CONDITION = "REPAYMENT_CONDITION"
     VARIABLE_INTEREST_CONDITION = "VARIABLE_INTEREST_CONDITION"
-    # --- additional labels ---
+    # --- additional value labels ---
     TAX = "TAX"  #: GST / tax rate or amount
     OTHER_PERCENTAGE = "OTHER_PERCENTAGE"  #: percentage whose meaning is not determinable
-    DURATION = "DURATION"  #: time period that is not the loan tenure (grace/notice period)
+    DURATION = "DURATION"  #: time period that is not the loan tenure (lock-in, notice period)
+    GRACE_PERIOD = "GRACE_PERIOD"  #: period allowed after a due date before consequences apply
+    PREMIUM = "PREMIUM"  #: insurance premium
+    SUM_INSURED = "SUM_INSURED"  #: insurance cover amount (sum insured / sum assured)
+    CO_PAYMENT = "CO_PAYMENT"  #: share of each claim paid by the policyholder
+    WAITING_PERIOD = "WAITING_PERIOD"  #: insurance waiting period before cover starts
+    COVERAGE_LIMIT = "COVERAGE_LIMIT"  #: insurance sub-limit (e.g. room rent cap)
+    # --- additional sentence-level condition labels ---
+    DEFAULT_CONDITION = "DEFAULT_CONDITION"  #: consequences of default (recall, legal action, credit bureau)
+    EXCLUSION = "EXCLUSION"  #: what is not covered / not payable / not liable
+    CANCELLATION_CONDITION = "CANCELLATION_CONDITION"  #: cancellation, refund, free-look, returns
+    DISCRETIONARY_CHANGE_CONDITION = "DISCRETIONARY_CHANGE_CONDITION"  #: terms changeable at one party's discretion
+    SECURITY_CONDITION = "SECURITY_CONDITION"  #: guarantor, collateral, lien, hypothecation, mortgage
+
+
+#: Labels whose entity spans a whole sentence (a condition) rather than a single value.
+SENTENCE_LEVEL_LABELS = frozenset({
+    "REPAYMENT_CONDITION", "VARIABLE_INTEREST_CONDITION", "DEFAULT_CONDITION", "EXCLUSION",
+    "CANCELLATION_CONDITION", "DISCRETIONARY_CHANGE_CONDITION", "SECURITY_CONDITION",
+})
 
 
 class BoundingBox(_Model):
@@ -139,6 +158,12 @@ class Page(_Model):
     is_empty: bool = Field(description="No text, images or drawings on the page")
     needs_ocr: bool = Field(description="Native text missing or insufficient")
     ocr_applied: bool = False
+    assessment_reason: Optional[str] = Field(
+        default=None, description="Why the page was treated as scanned/empty (None for good native text)")
+    ocr_mean_confidence: Optional[float] = Field(default=None, description="Mean Tesseract word confidence (OCR pages)")
+    ocr_word_count: Optional[int] = None
+    ocr_deskew_angle: Optional[float] = Field(default=None, description="Rotation applied before OCR (degrees)")
+    ocr_preprocessing: list[str] = Field(default_factory=list, description="Image steps applied before OCR")
     text: str = Field(default="", description="Original page text (blocks joined by blank lines)")
     blocks: list[TextBlock] = Field(default_factory=list)
 
@@ -182,6 +207,8 @@ class Clause(_Model):
     entity_ids: list[str] = Field(default_factory=list)
     financial_sentences: list[SentenceSpan] = Field(default_factory=list)
     is_financially_relevant: bool = False
+    simplified_text: Optional[str] = Field(
+        default=None, description="Rule-based plain-language rewrite of cleaned_text (for reading aid only)")
 
 
 class Evidence(_Model):
@@ -221,11 +248,42 @@ class Entity(_Model):
     attributes: dict[str, Any] = Field(default_factory=dict)
 
 
+class WarningLocation(_Model):
+    """Where on the page a warning applies."""
+
+    page_number: int
+    bbox: Optional[BoundingBox] = None
+    text: Optional[str] = Field(default=None, description="The text at this location, if any")
+    entity_id: Optional[str] = None
+    clause_id: Optional[str] = None
+
+
 class ExtractionWarning(_Model):
     code: str
-    message: str
+    message: str = Field(description="What happened, why, and what to do")
+    severity: str = Field(default="warning", description="info | warning")
     page_number: Optional[int] = None
     clause_id: Optional[str] = None
+    locations: list[WarningLocation] = Field(default_factory=list)
+
+
+class KeyPoint(_Model):
+    """A plain-language point derived (by rules/templates) from extracted entities and clauses.
+
+    Every point links to its source clauses/entities so it can be verified against the
+    original text. Points never judge whether a term is fair, legal or fraudulent.
+    """
+
+    point_id: str
+    category: str = Field(description="costs | interest | repayment | penalties | default | cover | "
+                                      "exclusions | cancellation | changes | dates | check")
+    text: str
+    importance: str = Field(default="info", description="info | attention (worth checking before signing)")
+    clause_ids: list[str] = Field(default_factory=list)
+    entity_ids: list[str] = Field(default_factory=list)
+    page_numbers: list[int] = Field(default_factory=list)
+    source_text: str = Field(default="", description="Cleaned source sentence/clause the point is based on")
+    method: str = Field(description="template | simplified_sentence")
 
 
 class ExtractionError(_Model):
@@ -267,6 +325,10 @@ class ExtractionMetadata(_Model):
     offset_reference: str
     excluded_artifact_lines: list[ArtifactLine] = Field(default_factory=list)
     label_counts: dict[str, int] = Field(default_factory=dict)
+    document_type: Optional[str] = Field(
+        default=None, description="loan_agreement | key_fact_statement | sanction_letter | insurance_policy | "
+                                  "emi_terms | unknown (keyword based)")
+    document_type_evidence: list[str] = Field(default_factory=list)
     processing_time_seconds: Optional[float] = None
 
 
@@ -281,6 +343,7 @@ class ExtractionResult(_Model):
     pages: list[Page] = Field(default_factory=list)
     clauses: list[Clause] = Field(default_factory=list)
     entities: list[Entity] = Field(default_factory=list)
+    key_points: list[KeyPoint] = Field(default_factory=list)
     warnings: list[ExtractionWarning] = Field(default_factory=list)
     errors: list[ExtractionError] = Field(default_factory=list)
     metadata: ExtractionMetadata

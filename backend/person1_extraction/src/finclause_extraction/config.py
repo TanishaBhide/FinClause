@@ -11,7 +11,7 @@ import os
 from dataclasses import dataclass
 from typing import Optional
 
-EXTRACTION_VERSION = "1.0.0"
+EXTRACTION_VERSION = "1.1.0"
 
 #: Environment variable that may point at the Tesseract executable
 #: (e.g. ``C:\\Program Files\\Tesseract-OCR\\tesseract.exe``) when it is not on PATH.
@@ -56,6 +56,8 @@ class ExtractionConfig:
             header/footer band.
         context_window_chars: Max distance (characters) between a financial value
             and the trigger phrase that gives it meaning.
+        low_ocr_confidence: OCR words below this confidence are flagged with locations.
+        generate_summary: Build ``key_points`` and ``Clause.simplified_text``.
     """
 
     use_ocr: bool = True
@@ -64,6 +66,8 @@ class ExtractionConfig:
     max_garbage_ratio: float = 0.30
     ocr_dpi: int = 300
     ocr_language: str = "eng"
+    #: Clean the page image before OCR (contrast, speckle removal, deskew, binarisation).
+    ocr_preprocess: bool = True
     tesseract_cmd: Optional[str] = None
     use_spacy: bool = True
     spacy_model: str = "en_core_web_sm"
@@ -72,6 +76,10 @@ class ExtractionConfig:
     detect_headers_footers: bool = True
     header_footer_margin_ratio: float = 0.08
     context_window_chars: int = 150
+    #: OCR words below this Tesseract confidence (0-100) are reported in a LOW_OCR_CONFIDENCE warning.
+    low_ocr_confidence: float = 60.0
+    #: Generate plain-language key points and simplified clause text.
+    generate_summary: bool = True
 
     def resolved_tesseract_cmd(self) -> Optional[str]:
         """Return the explicitly configured tesseract path, if any."""

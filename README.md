@@ -12,7 +12,7 @@ fraudulent or illegal.
 
 | Module | Owner | Status | Location |
 |---|---|---|---|
-| PDF/OCR extraction, clause segmentation, financial entity extraction | Person 1 | ✅ implemented, 171 tests | [`backend/person1_extraction/`](backend/person1_extraction/README.md) |
+| PDF/OCR extraction, clause segmentation, financial entity extraction, plain-language key points | Person 1 | ✅ implemented, 223 tests | [`backend/person1_extraction/`](backend/person1_extraction/README.md) |
 | Clause classification, semantic retrieval, contradiction detection | Person 2 | planned | – |
 | Plain-English explanations, FastAPI integration, React frontend | Person 3 | planned | – |
 
@@ -34,12 +34,18 @@ pip install -r requirements.txt
 winget install --id UB-Mannheim.TesseractOCR -e     # only needed for scanned PDFs
 ```
 
-Try it on a synthetic (fictional) agreement:
+See it working (one-click demo documents: loan agreement, Key Fact Statement, scanned sanction letter, health
+insurance terms, No Cost EMI terms, each as a digital PDF or a scanned photocopy):
 
 ```powershell
 cd backend\person1_extraction
-python scripts\make_sample_pdf.py
-python scripts\run_extraction.py --input data\raw\synthetic_loan_agreement.pdf --output data\processed\result.json
+python scripts\demo_server.py          # opens http://127.0.0.1:8765
+```
+
+Command line:
+
+```powershell
+python scripts\run_extraction.py --input path\to\loan.pdf --output data\processed\result.json
 ```
 
 Use it from Python:

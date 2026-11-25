@@ -6,156 +6,233 @@
 <title>FinClause Extraction Viewer</title>
 <style>
   :root {
-    --bg: #f6f7f9; --panel: #ffffff; --text: #1c2430; --muted: #687385; --border: #e2e6ec;
-    --accent: #2563eb; --accent-text: #ffffff; --shadow: 0 1px 3px rgba(16,24,40,.08), 0 1px 2px rgba(16,24,40,.04);
-    --page-bg: #ffffff; --warn: #b45309; --warn-bg: #fff7ed; --err: #b91c1c; --err-bg: #fef2f2; --ok: #15803d; --ok-bg: #f0fdf4;
+    --bg: #f5f6f8; --panel: #ffffff; --text: #1c2430; --muted: #667085; --border: #e3e7ed; --soft: #f1f3f6;
+    --accent: #2563eb; --accent-text: #fff; --shadow: 0 1px 3px rgba(16,24,40,.08), 0 1px 2px rgba(16,24,40,.04);
+    --ok: #15803d; --ok-bg: #ecfdf3; --warn: #b45309; --warn-bg: #fff7ed; --err: #b91c1c; --err-bg: #fef2f2;
+    --info: #475569; --info-bg: #f1f5f9; --digital: #15803d; --scan: #b45309;
     --c-INTEREST_RATE:#2563eb; --c-PROCESSING_FEE:#9333ea; --c-PENALTY:#dc2626; --c-FORECLOSURE_CHARGE:#ea580c;
     --c-PREPAYMENT_CHARGE:#ca8a04; --c-LOAN_AMOUNT:#059669; --c-EMI:#0d9488; --c-TENURE:#0891b2; --c-DATE:#64748b;
     --c-OTHER_FINANCIAL_AMOUNT:#78716c; --c-REPAYMENT_CONDITION:#4f46e5; --c-VARIABLE_INTEREST_CONDITION:#c026d3;
-    --c-TAX:#a16207; --c-OTHER_PERCENTAGE:#737373; --c-DURATION:#0284c7;
+    --c-TAX:#a16207; --c-OTHER_PERCENTAGE:#737373; --c-DURATION:#0284c7; --c-GRACE_PERIOD:#0369a1;
+    --c-PREMIUM:#16a34a; --c-SUM_INSURED:#15803d; --c-CO_PAYMENT:#be123c; --c-WAITING_PERIOD:#7c3aed;
+    --c-COVERAGE_LIMIT:#e11d48; --c-DEFAULT_CONDITION:#991b1b; --c-EXCLUSION:#9f1239; --c-CANCELLATION_CONDITION:#0f766e;
+    --c-DISCRETIONARY_CHANGE_CONDITION:#a21caf; --c-SECURITY_CONDITION:#854d0e;
   }
   @media (prefers-color-scheme: dark) {
-    :root {
-      --bg: #0f1318; --panel: #171c23; --text: #e5e9ef; --muted: #96a1b0; --border: #2a313b;
-      --accent: #3b82f6; --shadow: none; --page-bg: #ffffff;
-      --warn: #fbbf24; --warn-bg: #2a2111; --err: #f87171; --err-bg: #2b1515; --ok: #4ade80; --ok-bg: #11251a;
-    }
+    :root { --bg:#0f1318; --panel:#171c23; --text:#e5e9ef; --muted:#97a2b1; --border:#2a313b; --soft:#1e242c;
+      --accent:#3b82f6; --shadow:none; --ok:#4ade80; --ok-bg:#10251a; --warn:#fbbf24; --warn-bg:#2a2111;
+      --err:#f87171; --err-bg:#2b1515; --info:#cbd5e1; --info-bg:#1e2530; --digital:#4ade80; --scan:#fbbf24; }
   }
   * { box-sizing: border-box; }
-  html, body { margin: 0; height: 100%; }
-  body { background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  [hidden] { display: none !important; }
+  html, body { margin: 0; }
+  body { background: var(--bg); color: var(--text); font: 14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
   button, .btn { font: inherit; cursor: pointer; border: 1px solid var(--border); background: var(--panel); color: var(--text);
-    padding: 6px 12px; border-radius: 8px; display: inline-flex; align-items: center; gap: 6px; }
+    padding: 6px 12px; border-radius: 8px; display: inline-flex; align-items: center; gap: 6px; text-decoration: none; }
   button:hover, .btn:hover { border-color: var(--accent); }
   .btn.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+  .btn.small, button.small { padding: 3px 9px; font-size: 12.5px; }
   button:disabled { opacity: .5; cursor: progress; }
+  h2, h3, h4 { margin: 0; }
+  .muted { color: var(--muted); } .mono { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 12.5px; }
 
-  header { position: sticky; top: 0; z-index: 20; background: var(--panel); border-bottom: 1px solid var(--border);
-    display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; padding: 10px 16px; }
-  header h1 { font-size: 16px; margin: 0; font-weight: 650; letter-spacing: -.01em; }
+  header { position: sticky; top: 0; z-index: 30; background: var(--panel); border-bottom: 1px solid var(--border);
+    display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 10px 16px; }
+  header h1 { font-size: 16px; margin: 0; font-weight: 650; }
   header h1 small { color: var(--muted); font-weight: 400; margin-left: 6px; }
   .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-left: auto; }
-  .controls label.toggle { display: inline-flex; gap: 6px; align-items: center; color: var(--muted); user-select: none; }
+  label.toggle { display: inline-flex; gap: 6px; align-items: center; color: var(--muted); user-select: none; cursor: pointer; }
   #file { display: none; }
-
   #status { padding: 8px 16px; font-size: 13px; color: var(--muted); min-height: 34px; display: flex; align-items: center; gap: 8px; }
   .spinner { width: 14px; height: 14px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
 
-  #summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; padding: 0 16px 12px; }
-  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; box-shadow: var(--shadow); }
-  .card .k { font-size: 12px; color: var(--muted); }
-  .card .v { font-size: 20px; font-weight: 650; margin-top: 2px; }
+  /* demo gallery */
+  #gallery { padding: 0 16px 8px; }
+  #gallery .bar { display: flex; align-items: baseline; gap: 10px; margin: 4px 0 10px; }
+  #gallery .bar h2 { font-size: 15px; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
+  .doc { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; box-shadow: var(--shadow);
+    display: flex; flex-direction: column; gap: 6px; }
+  .doc .inst { font-size: 12px; color: var(--muted); }
+  .doc h3 { font-size: 14.5px; }
+  .doc p { margin: 0; font-size: 12.5px; color: var(--muted); }
+  .doc .tags { display: flex; flex-wrap: wrap; gap: 4px; }
+  .tag { font-size: 11px; padding: 1px 7px; border-radius: 10px; background: var(--soft); color: var(--muted); }
+  .cat { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+  .cat-loan { color: #2563eb; } .cat-insurance { color: #16a34a; } .cat-emi { color: #c026d3; }
+  .doc .actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: auto; padding-top: 4px; }
+  #gallery.collapsed .cards { display: none; }
+
+  #summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(125px, 1fr)); gap: 10px; padding: 4px 16px 12px; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 9px 12px; box-shadow: var(--shadow); }
+  .card .k { font-size: 12px; color: var(--muted); } .card .v { font-size: 18px; font-weight: 650; margin-top: 1px; }
   .status-success { color: var(--ok); } .status-partial { color: var(--warn); } .status-failed { color: var(--err); }
 
-  main { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(360px, 1fr); gap: 16px; padding: 0 16px 16px; }
-  @media (max-width: 900px) { main { grid-template-columns: 1fr; } #side { position: static !important; height: auto !important; } }
-
-  #pages { display: flex; flex-direction: column; gap: 16px; }
-  .page { position: relative; background: var(--page-bg); border: 1px solid var(--border); border-radius: 6px; box-shadow: var(--shadow); overflow: hidden; }
+  main { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(380px, 1fr); gap: 16px; padding: 0 16px 16px; }
+  @media (max-width: 960px) { main { grid-template-columns: 1fr; } #side { position: static !important; height: auto !important; max-height: none !important; } }
+  .overlaybar { position: sticky; top: 58px; z-index: 12; background: var(--bg); padding: 4px 0 8px; display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 13px; }
+  #pages { display: flex; flex-direction: column; gap: 18px; }
+  .pagewrap { display: flex; flex-direction: column; gap: 0; }
+  .ribbon { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; padding: 7px 12px; border-radius: 8px 8px 0 0; font-size: 12.5px;
+    border: 1px solid var(--border); border-bottom: 0; }
+  .ribbon b { font-size: 12px; letter-spacing: .05em; padding: 2px 8px; border-radius: 6px; color: #fff; }
+  .ribbon.native { background: var(--ok-bg); } .ribbon.native b { background: var(--digital); }
+  .ribbon.ocr { background: var(--warn-bg); } .ribbon.ocr b { background: var(--scan); }
+  .ribbon.none { background: var(--err-bg); } .ribbon.none b { background: var(--err); }
+  .ribbon .meter { display: inline-block; width: 70px; height: 7px; border-radius: 4px; background: var(--border); overflow: hidden; vertical-align: middle; }
+  .ribbon .meter i { display: block; height: 100%; background: var(--scan); }
+  .page { position: relative; background: #fff; border: 1px solid var(--border); border-radius: 0 0 6px 6px; box-shadow: var(--shadow); overflow: hidden; }
+  .page.flagged { outline: 3px dashed var(--warn); outline-offset: -3px; }
   .page img { display: block; width: 100%; height: auto; }
-  .page .pno { position: absolute; top: 6px; right: 8px; background: rgba(0,0,0,.6); color: #fff; font-size: 11px; padding: 2px 7px; border-radius: 10px; z-index: 3; }
-  .box { position: absolute; box-sizing: content-box; margin: -2px 0 0 -2px; border: 2px solid var(--c); background: color-mix(in srgb, var(--c) 14%, transparent); border-radius: 3px; cursor: pointer; z-index: 2; transition: background .15s; }
-  .box:hover { background: color-mix(in srgb, var(--c) 30%, transparent); }
-  .box.cond { border-width: 0 0 2px 0; border-style: dashed; background: color-mix(in srgb, var(--c) 6%, transparent); z-index: 1; border-radius: 0; }
-  .box.selected { outline: 3px solid var(--c); outline-offset: 2px; animation: pulse 1s ease 2; z-index: 4; }
+  .box { position: absolute; box-sizing: content-box; margin: -2px 0 0 -2px; border: 2px solid var(--c); background: color-mix(in srgb, var(--c) 14%, transparent);
+    border-radius: 3px; cursor: pointer; z-index: 3; }
+  .box:hover { background: color-mix(in srgb, var(--c) 32%, transparent); }
+  .box.cond { border-width: 0 0 2px 0; border-style: dashed; background: color-mix(in srgb, var(--c) 6%, transparent); z-index: 2; border-radius: 0; }
+  .box.selected, .box.lit { outline: 3px solid var(--c); outline-offset: 2px; z-index: 6; }
+  .box.selected { animation: pulse 1s ease 2; }
   @keyframes pulse { 50% { outline-offset: 6px; } }
-  .clause-outline { position: absolute; border: 2px dashed #64748b; background: rgba(100,116,139,.07); border-radius: 4px; pointer-events: none; z-index: 1; }
+  .word { position: absolute; border: 1px solid rgba(37,99,235,.55); z-index: 1; pointer-events: auto; }
+  .word.c-hi { border-color: rgba(22,163,74,.7); background: rgba(22,163,74,.07); }
+  .word.c-mid { border-color: rgba(217,119,6,.9); background: rgba(217,119,6,.15); }
+  .word.c-lo { border-color: rgba(220,38,38,1); background: rgba(220,38,38,.28); }
+  .wmark { position: absolute; border: 2px dashed var(--warn); background: color-mix(in srgb, var(--warn) 12%, transparent); z-index: 4; border-radius: 3px; cursor: help; }
+  .wmark.info { border-color: #64748b; background: rgba(100,116,139,.10); }
+  .wmark span { position: absolute; top: -17px; left: -2px; font-size: 10px; font-weight: 700; color: #fff; background: var(--warn); padding: 0 5px; border-radius: 4px; white-space: nowrap; }
+  .wmark.info span { background: #64748b; }
+  .wmark.lit { outline: 3px solid var(--warn); outline-offset: 2px; animation: pulse 1s ease 3; }
+  .pagebanner { position: absolute; left: 8px; right: 8px; top: 8px; z-index: 7; background: var(--warn-bg); color: var(--text); border: 1px solid var(--warn); border-radius: 8px; padding: 8px 10px; font-size: 12.5px; }
+  .clause-outline { position: absolute; border: 2px dashed #64748b; background: rgba(100,116,139,.08); border-radius: 4px; pointer-events: none; z-index: 1; }
+  .hide-ent .box, .hide-cond .box.cond, .hide-warn .wmark, .hide-words .word { display: none !important; }
   .hidden-label { display: none !important; }
 
-  #side { position: sticky; top: 62px; height: calc(100vh - 78px); display: flex; flex-direction: column; background: var(--panel);
+  #side { position: sticky; top: 58px; height: calc(100vh - 74px); display: flex; flex-direction: column; background: var(--panel);
     border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow); overflow: hidden; }
   .tabs { display: flex; border-bottom: 1px solid var(--border); padding: 0 6px; flex-shrink: 0; overflow-x: auto; }
-  .tab { border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: none; padding: 10px 12px; color: var(--muted); white-space: nowrap; }
+  .tab { border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: none; padding: 10px 11px; color: var(--muted); white-space: nowrap; }
   .tab.active { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
-  .tab .count { font-size: 11px; background: var(--bg); border-radius: 9px; padding: 0 6px; margin-left: 4px; }
-  .tabpane { display: none; overflow: auto; flex: 1; padding: 12px; }
+  .tab .count { font-size: 11px; background: var(--soft); border-radius: 9px; padding: 0 6px; margin-left: 3px; }
+  .tabpane { display: none; overflow: auto; flex: 1; padding: 12px 14px; }
   .tabpane.active { display: block; }
+  .note { font-size: 12px; color: var(--muted); }
 
-  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
-  .chip { font-size: 12px; padding: 3px 9px; border-radius: 12px; border: 1px solid var(--c); color: var(--text);
-    background: color-mix(in srgb, var(--c) 14%, transparent); }
+  /* summary */
+  .doctype { display: inline-block; font-size: 12px; padding: 2px 8px; border-radius: 10px; background: var(--soft); margin-left: 6px; }
+  .kp-group { margin: 14px 0 6px; } .kp-group h4 { font-size: 13.5px; display: flex; align-items: center; gap: 8px; }
+  .kp { display: flex; gap: 10px; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border); margin: 6px 0; cursor: pointer; background: var(--panel); }
+  .kp:hover { border-color: var(--accent); }
+  .kp.attention { border-left: 4px solid var(--warn); background: color-mix(in srgb, var(--warn-bg) 60%, var(--panel)); }
+  .kp .ic { flex-shrink: 0; width: 18px; text-align: center; }
+  .kp .src { display: none; margin-top: 6px; font-size: 12.5px; color: var(--muted); border-left: 2px solid var(--border); padding-left: 8px; }
+  .kp.open .src { display: block; }
+  .kp .ref { font-size: 11.5px; color: var(--muted); margin-top: 2px; }
+  .disclaimer { font-size: 12px; color: var(--muted); background: var(--soft); border-radius: 8px; padding: 8px 10px; margin-bottom: 8px; }
+
+  .chips { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 10px; }
+  .chip { font-size: 11.5px; padding: 2px 8px; border-radius: 12px; border: 1px solid var(--c); background: color-mix(in srgb, var(--c) 14%, transparent); }
   .chip.off { background: none; opacity: .45; }
-  .pill { display: inline-block; font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 10px; color: #fff; background: var(--c); white-space: nowrap; }
-
+  .pill { display: inline-block; font-size: 10.5px; font-weight: 650; padding: 1px 7px; border-radius: 10px; color: #fff; background: var(--c); white-space: nowrap; }
   table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  th { text-align: left; color: var(--muted); font-weight: 500; font-size: 12px; padding: 6px; border-bottom: 1px solid var(--border); position: sticky; top: -12px; background: var(--panel); }
-  td { padding: 7px 6px; border-bottom: 1px solid var(--border); vertical-align: top; }
-  tr.row { cursor: pointer; } tr.row:hover td { background: var(--bg); } tr.row.selected td { background: color-mix(in srgb, var(--accent) 10%, transparent); }
-  td.mono, .mono { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 12.5px; }
-  .muted { color: var(--muted); }
+  th { text-align: left; color: var(--muted); font-weight: 500; font-size: 12px; padding: 6px; border-bottom: 1px solid var(--border); position: sticky; top: -12px; background: var(--panel); z-index: 1; }
+  td { padding: 6px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  tr.row { cursor: pointer; } tr.row:hover td { background: var(--soft); } tr.row.selected td { background: color-mix(in srgb, var(--accent) 10%, transparent); }
 
-  .clause { border-left: 3px solid var(--border); padding: 6px 10px; margin: 0 0 8px; border-radius: 0 6px 6px 0; }
-  .clause:hover { border-left-color: var(--accent); background: var(--bg); }
-  .clause .meta { font-size: 12px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 4px 10px; margin-bottom: 3px; }
+  .clause { border-left: 3px solid var(--border); padding: 6px 10px; margin: 0 0 8px; border-radius: 0 6px 6px 0; cursor: pointer; }
+  .clause:hover { border-left-color: var(--accent); background: var(--soft); }
+  .clause .meta { font-size: 12px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 3px 10px; margin-bottom: 3px; }
   .clause .meta b { color: var(--text); }
   .clause .txt { white-space: pre-wrap; }
+  .clause .plain { margin-top: 4px; padding: 6px 8px; background: var(--ok-bg); border-radius: 6px; font-size: 13px; }
+  .clause .plain::before { content: "In plain English: "; font-weight: 600; }
   .clause.type-heading .txt, .clause.type-section .txt { font-weight: 650; }
   mark { color: inherit; background: color-mix(in srgb, var(--c) 22%, transparent); border-bottom: 2px solid var(--c); border-radius: 2px; padding: 0 1px; cursor: pointer; }
   .conds { margin-top: 4px; display: flex; gap: 4px; flex-wrap: wrap; }
 
-  #details { border-top: 1px solid var(--border); padding: 12px; max-height: 45%; overflow: auto; flex-shrink: 0; display: none; background: var(--bg); }
+  .warn { padding: 9px 11px; border-radius: 8px; margin-bottom: 9px; background: var(--warn-bg); border: 1px solid color-mix(in srgb, var(--warn) 40%, transparent); }
+  .warn.info { background: var(--info-bg); border-color: var(--border); }
+  .warn.error { background: var(--err-bg); border-color: color-mix(in srgb, var(--err) 40%, transparent); }
+  .warn .head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .warn code { font-weight: 650; }
+  .warn pre { margin: 5px 0; white-space: pre-wrap; font: inherit; font-size: 13px; }
+  .loc { display: inline-block; font-size: 12px; margin: 2px 4px 2px 0; padding: 1px 7px; border-radius: 10px; border: 1px solid var(--border); background: var(--panel); cursor: pointer; }
+  .loc:hover { border-color: var(--warn); }
+  .sev { font-size: 10.5px; font-weight: 700; text-transform: uppercase; padding: 1px 6px; border-radius: 6px; color: #fff; background: var(--warn); }
+  .sev.info { background: #64748b; } .sev.error { background: var(--err); }
+
+  .stage { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; margin-bottom: 10px; }
+  .stage h4 { font-size: 13.5px; margin-bottom: 6px; display: flex; gap: 8px; align-items: center; }
+  .stage h4 .n { width: 20px; height: 20px; border-radius: 50%; background: var(--accent); color: #fff; font-size: 11px; display: inline-flex; align-items: center; justify-content: center; }
+  .diff { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; font-size: 12px; margin: 6px 0; }
+  .diff div { background: var(--soft); border-radius: 6px; padding: 5px 7px; white-space: pre-wrap; word-break: break-word; }
+  .bars div { display: flex; align-items: center; gap: 8px; font-size: 12px; margin: 2px 0; }
+  .bars span.b { height: 9px; border-radius: 4px; background: var(--c, var(--accent)); }
+
+  #details { border-top: 1px solid var(--border); padding: 12px; max-height: 45%; overflow: auto; flex-shrink: 0; display: none; background: var(--soft); }
   #details.show { display: block; }
-  #details h3 { margin: 0 0 8px; font-size: 14px; display: flex; align-items: center; gap: 8px; }
+  #details h3 { font-size: 14px; display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
   #details .close { margin-left: auto; padding: 2px 8px; }
   dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; margin: 0; font-size: 13px; }
   dt { color: var(--muted); } dd { margin: 0; word-break: break-word; }
   .ctx { margin-top: 10px; padding: 8px 10px; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; white-space: pre-wrap; }
-
-  .warn { padding: 8px 10px; border-radius: 8px; margin-bottom: 8px; background: var(--warn-bg); border: 1px solid color-mix(in srgb, var(--warn) 35%, transparent); }
-  .warn.error { background: var(--err-bg); border-color: color-mix(in srgb, var(--err) 35%, transparent); }
-  .warn code { font-weight: 600; } .warn pre { margin: 4px 0 0; white-space: pre-wrap; font: inherit; font-size: 12.5px; }
-
-  #empty { margin: 40px auto; max-width: 620px; text-align: center; color: var(--muted); }
-  #empty h2 { color: var(--text); font-size: 20px; margin-bottom: 6px; }
-  #empty .drop { margin-top: 18px; border: 2px dashed var(--border); border-radius: 14px; padding: 36px 20px; }
-  body.dragging #empty .drop, body.dragging #pages { outline: 3px dashed var(--accent); outline-offset: 4px; }
+  #empty { margin: 10px 16px 30px; text-align: center; color: var(--muted); }
+  body.dragging #gallery, body.dragging #pages { outline: 3px dashed var(--accent); outline-offset: 4px; }
   pre.json { font-size: 12px; white-space: pre-wrap; word-break: break-all; margin: 8px 0 0; }
-  .note { font-size: 12px; color: var(--muted); margin-top: 8px; }
 </style>
 </head>
 <body>
 <header>
   <h1>FinClause <small>Person 1 · extraction viewer</small></h1>
   <div class="controls">
-    <label class="toggle"><input type="checkbox" id="ocr" checked> OCR</label>
-    <label class="toggle"><input type="checkbox" id="showCond" checked> Condition spans</label>
-    <label class="btn primary" for="file">Upload PDF…</label>
+    <label class="toggle" title="Read scanned pages with Tesseract OCR"><input type="checkbox" id="ocr" checked> OCR</label>
+    <label class="btn primary" for="file">Upload your PDF…</label>
     <input type="file" id="file" accept="application/pdf,.pdf">
-    <button id="sampleDigital">Sample (digital)</button>
-    <button id="sampleScanned">Sample (scanned)</button>
   </div>
 </header>
 
 <div id="status"></div>
+
+<section id="gallery">
+  <div class="bar"><h2>One-click demo documents</h2>
+    <span class="note">Fictional institutions; formats modelled on real loan agreements, an RBI-style Key Fact Statement, a sanction letter, health-insurance terms and e-commerce EMI terms.</span>
+    <button class="small" id="toggleGallery" style="margin-left:auto">Hide</button></div>
+  <div class="cards" id="cards"></div>
+</section>
+<div id="empty"><p>…or drop any PDF onto this page. Everything runs locally on your machine.</p></div>
+
 <div id="summary"></div>
 
-<div id="empty">
-  <h2>Inspect what the extraction pipeline finds</h2>
-  <p>Upload a loan agreement PDF or load a synthetic sample. Every financial entity is drawn on the page where it was found.
-     Click a box, a table row or a highlighted value to see how it was labelled.</p>
-  <div class="drop">Drop a PDF here</div>
-  <p class="note">Runs locally on your machine. Nothing is uploaded to the internet.</p>
-</div>
-
 <main id="main" hidden>
-  <section id="pages"></section>
+  <section>
+    <div class="overlaybar">
+      <label class="toggle"><input type="checkbox" id="tEnt" checked> Entities</label>
+      <label class="toggle"><input type="checkbox" id="tCond" checked> Condition sentences</label>
+      <label class="toggle"><input type="checkbox" id="tWarn" checked> Warnings</label>
+      <label class="toggle" title="Native: blue = word from the PDF text layer. OCR: green ≥ 90%, amber 70–90%, red < 70% confidence"><input type="checkbox" id="tWords"> Words read (text layer / OCR confidence)</label>
+    </div>
+    <div id="pages"></div>
+  </section>
   <aside id="side">
     <div class="tabs">
-      <button class="tab active" data-tab="entities">Entities <span class="count" id="nEnt"></span></button>
+      <button class="tab active" data-tab="summary">Summary <span class="count" id="nKp"></span></button>
+      <button class="tab" data-tab="entities">Entities <span class="count" id="nEnt"></span></button>
       <button class="tab" data-tab="clauses">Clauses <span class="count" id="nCl"></span></button>
       <button class="tab" data-tab="warnings">Warnings <span class="count" id="nWarn"></span></button>
+      <button class="tab" data-tab="pipeline">Pipeline</button>
       <button class="tab" data-tab="json">JSON</button>
     </div>
-    <div class="tabpane active" id="tab-entities">
+    <div class="tabpane active" id="tab-summary"></div>
+    <div class="tabpane" id="tab-entities">
       <div class="chips" id="chips"></div>
       <table><thead><tr><th>Label</th><th>Text</th><th>Normalised</th><th>Clause</th><th>Pg</th></tr></thead><tbody id="entRows"></tbody></table>
     </div>
-    <div class="tabpane" id="tab-clauses"></div>
+    <div class="tabpane" id="tab-clauses">
+      <label class="toggle" style="margin-bottom:8px"><input type="checkbox" id="tPlain" checked> Show plain-English version</label>
+      <div id="clauseList"></div>
+    </div>
     <div class="tabpane" id="tab-warnings"></div>
+    <div class="tabpane" id="tab-pipeline"></div>
     <div class="tabpane" id="tab-json">
       <button id="download">Download JSON</button>
-      <p class="note">Word-level boxes are omitted in the viewer to keep it fast. The CLI output includes them.</p>
       <pre class="json mono" id="jsonPre"></pre>
     </div>
     <div id="details"></div>
@@ -164,44 +241,57 @@
 
 <script>
 "use strict";
-const COND = new Set(["REPAYMENT_CONDITION", "VARIABLE_INTEREST_CONDITION"]);
-const state = { result: null, entById: {}, clById: {}, hidden: new Set(), selected: null };
-const $ = (s, el = document) => el.querySelector(s);
-const el = (tag, props = {}, ...kids) => {
+const COND = new Set(["REPAYMENT_CONDITION", "VARIABLE_INTEREST_CONDITION", "DEFAULT_CONDITION", "EXCLUSION",
+  "CANCELLATION_CONDITION", "DISCRETIONARY_CHANGE_CONDITION", "SECURITY_CONDITION"]);
+const CAT_TITLES = { basics: "The basics", costs: "Fees and charges", interest: "Interest", repayment: "Repayment",
+  penalties: "If you pay late", default: "If you default", security: "Security and guarantees", cover: "What is covered",
+  exclusions: "What is not covered", cancellation: "Cancellation and refunds", changes: "Terms that can change",
+  dates: "Key dates", check: "Worth checking before you sign" };
+const CAT_ICON = { basics: "📄", costs: "💸", interest: "📈", repayment: "🗓️", penalties: "⏰", default: "⚠️", security: "🔒",
+  cover: "🛡️", exclusions: "🚫", cancellation: "↩️", changes: "✏️", dates: "📅", check: "🔍" };
+const DOC_TYPES = { loan_agreement: "Loan agreement", key_fact_statement: "Key Fact Statement", sanction_letter: "Sanction letter",
+  insurance_policy: "Insurance policy", emi_terms: "EMI terms", unknown: "Unknown type" };
+const state = { result: null, entById: {}, clById: {}, hidden: new Set() };
+const $ = (s, e = document) => e.querySelector(s);
+const $$ = (s, e = document) => [...e.querySelectorAll(s)];
+function el(tag, props = {}, ...kids) {
   const n = document.createElement(tag);
   for (const [k, v] of Object.entries(props)) {
+    if (v == null) continue;
     if (k === "class") n.className = v; else if (k === "text") n.textContent = v;
     else if (k === "style") n.setAttribute("style", v); else if (k.startsWith("on")) n.addEventListener(k.slice(2), v);
     else if (k === "dataset") Object.assign(n.dataset, v); else n.setAttribute(k, v);
   }
-  for (const c of kids) if (c != null) n.append(c);
+  for (const c of kids) if (c != null && c !== false) n.append(c);
   return n;
-};
-const color = label => `--c: var(--c-${label}, #888)`;
-const pill = label => el("span", { class: "pill", style: color(label), text: label.replaceAll("_", " ") });
+}
+const color = l => `--c: var(--c-${l}, #888)`;
+const pill = l => el("span", { class: "pill", style: color(l), text: l.replaceAll("_", " ") });
 const clauseName = c => c ? (c.numbering_path || c.clause_number || c.clause_type) : "";
+const pct = (v, t) => (100 * v / t).toFixed(3) + "%";
+const boxStyle = (b, page, pad = 0) => `left:${pct(b.x0 - pad, +page.dataset.w)}; top:${pct(b.y0 - pad, +page.dataset.h)}; width:${pct(b.x1 - b.x0 + 2 * pad, +page.dataset.w)}; height:${pct(b.y1 - b.y0 + 2 * pad, +page.dataset.h)}`;
 
-// ---------- loading ----------
+// ---------------- loading ----------------
 function setStatus(msg, busy = false) {
   const s = $("#status"); s.replaceChildren();
   if (busy) s.append(el("span", { class: "spinner" }));
   s.append(msg);
-  document.querySelectorAll("button, .btn").forEach(b => b.toggleAttribute("disabled", busy));
+  $$("button, .btn").forEach(b => b.toggleAttribute("disabled", busy));
 }
 async function post(url, body, headers = {}) {
-  const t0 = performance.now();
   const res = await fetch(url, { method: "POST", body, headers });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || res.statusText);
-  return [data, ((performance.now() - t0) / 1000).toFixed(1)];
+  return data;
 }
-async function run(promiseFactory, label) {
-  setStatus(`Analysing ${label}… (OCR of scanned pages can take a few seconds per page)`, true);
+async function run(factory, label) {
+  setStatus(`Analysing ${label}… (scanned pages are cleaned, deskewed and read by OCR: a few seconds per page)`, true);
   try {
-    const [data, secs] = await promiseFactory();
+    const data = await factory();
     render(data);
-    const server = data.metadata?.processing_time_seconds;
-    setStatus(`Analysed ${data.filename}: pipeline ${server ?? "?"} s (round trip ${secs} s)`);
+    setStatus(`Analysed ${data.filename} in ${data.metadata?.processing_time_seconds ?? "?"} s`);
+    $("#gallery").classList.add("collapsed"); $("#toggleGallery").textContent = "Show";
+    window.scrollTo({ top: 0, behavior: "smooth" });
   } catch (e) { setStatus("Error: " + e.message); }
 }
 const ocr = () => ($("#ocr").checked ? "1" : "0");
@@ -209,224 +299,318 @@ function analyzeFile(file) {
   if (!file) return;
   run(() => post(`/api/analyze?ocr=${ocr()}`, file, { "X-Filename": encodeURIComponent(file.name), "Content-Type": "application/pdf" }), file.name);
 }
+function runDemo(id, scanned) { run(() => post(`/api/demo/${id}?scanned=${scanned ? 1 : 0}&ocr=${ocr()}`), scanned ? "scanned demo document" : "demo document"); }
 $("#file").addEventListener("change", e => { analyzeFile(e.target.files[0]); e.target.value = ""; });
-$("#sampleDigital").onclick = () => run(() => post(`/api/sample?kind=digital&ocr=${ocr()}`), "synthetic digital sample");
-$("#sampleScanned").onclick = () => run(() => post(`/api/sample?kind=scanned&ocr=${ocr()}`), "synthetic scanned sample");
+$("#toggleGallery").onclick = () => { const g = $("#gallery"); g.classList.toggle("collapsed"); $("#toggleGallery").textContent = g.classList.contains("collapsed") ? "Show" : "Hide"; };
 ["dragenter", "dragover"].forEach(t => document.addEventListener(t, e => { e.preventDefault(); document.body.classList.add("dragging"); }));
 ["dragleave", "drop"].forEach(t => document.addEventListener(t, e => { e.preventDefault(); if (t === "drop" || e.target === document.documentElement) document.body.classList.remove("dragging"); }));
 document.addEventListener("drop", e => analyzeFile(e.dataTransfer.files[0]));
 
-// ---------- rendering ----------
-function render(r) {
-  state.result = r; state.selected = null; state.hidden.clear();
-  state.entById = Object.fromEntries(r.entities.map(e => [e.entity_id, e]));
-  state.clById = Object.fromEntries(r.clauses.map(c => [c.clause_id, c]));
-  $("#empty").hidden = r.extraction_status !== "failed" ? true : false;
-  $("#main").hidden = r.extraction_status === "failed";
-  renderSummary(r); renderPages(r); renderChips(r); renderEntities(); renderClauses(r); renderWarnings(r); renderJson(r);
-  hideDetails();
+async function loadGallery() {
+  const docs = await (await fetch("/api/demos")).json();
+  $("#cards").replaceChildren(...docs.map(d => el("div", { class: "doc" },
+    el("div", { class: `cat cat-${d.category}`, text: d.category === "emi" ? "EMI / e-commerce" : d.category }),
+    el("h3", { text: d.title }), el("div", { class: "inst", text: `${d.institution} · ${d.pages} page${d.pages > 1 ? "s" : ""}` }),
+    el("p", { text: d.description }),
+    el("div", { class: "tags" }, ...d.highlights.map(h => el("span", { class: "tag", text: h }))),
+    el("div", { class: "actions" },
+      el("button", { class: "small" + (d.default_scanned ? "" : " primary btn"), text: "▶ Digital PDF", title: "PDF with a text layer: text is read directly", onclick: () => runDemo(d.id, false) }),
+      el("button", { class: "small" + (d.default_scanned ? " primary btn" : ""), text: "▶ Scanned (OCR)", title: "Photocopy-style image PDF: needs OCR", onclick: () => runDemo(d.id, true) }),
+      el("a", { class: "btn small", href: `/api/demo/${d.id}.pdf?scanned=${d.default_scanned ? 1 : 0}`, text: "⬇ PDF", title: "Download this demo PDF" })))));
 }
 
-function renderSummary(r) {
+// ---------------- rendering ----------------
+function render(r) {
+  state.result = r; state.hidden.clear();
+  state.entById = Object.fromEntries(r.entities.map(e => [e.entity_id, e]));
+  state.clById = Object.fromEntries(r.clauses.map(c => [c.clause_id, c]));
+  const failed = r.extraction_status === "failed";
+  $("#main").hidden = failed;
+  renderSummaryCards(r);
+  if (failed) return;
+  renderPages(r); renderKeyPoints(r); renderChips(r); renderEntities(r); renderClauses(r); renderWarnings(r); renderPipeline(r); renderJson(r);
+  hideDetails(); applyToggles(); showTab("summary");
+}
+
+function renderSummaryCards(r) {
   const md = r.metadata || {};
-  const cards = [
-    ["Status", r.extraction_status, "status-" + r.extraction_status],
-    ["Pages", r.total_pages], ["Clauses", r.clauses.length], ["Entities", r.entities.length],
-    ["OCR pages", (md.ocr_pages || []).join(", ") || "none"],
-    ["Warnings", r.warnings.length + (r.errors.length ? ` · ${r.errors.length} errors` : "")],
-  ];
+  const ocrPages = md.ocr_pages || [], nativePages = md.native_pages || [];
+  const how = ocrPages.length && nativePages.length ? `${nativePages.length} digital · ${ocrPages.length} scanned`
+    : ocrPages.length ? `Scanned → OCR (${ocrPages.length})` : nativePages.length ? "Digital text" : "—";
+  const cards = [["Status", r.extraction_status, "status-" + r.extraction_status], ["Document", DOC_TYPES[md.document_type] || "—"],
+    ["Pages", r.total_pages], ["How text was read", how], ["Clauses", r.clauses.length], ["Entities", r.entities.length],
+    ["Key points", (r.key_points || []).length], ["Warnings", r.warnings.length + (r.errors.length ? ` · ${r.errors.length} errors` : "")]];
   $("#summary").replaceChildren(...cards.map(([k, v, cls]) => el("div", { class: "card" }, el("div", { class: "k", text: k }), el("div", { class: "v " + (cls || ""), text: String(v) }))));
-  if (r.extraction_status === "failed") {
-    $("#empty").hidden = false;
-    $("#empty").replaceChildren(el("h2", { text: "Extraction failed" }), ...r.errors.map(e => el("div", { class: "warn error" }, el("code", { text: e.code }), el("pre", { text: e.message }))));
+  if (r.extraction_status === "failed")
+    $("#summary").append(el("div", { class: "warn error", style: "grid-column:1/-1" }, ...r.errors.map(e => el("div", {}, el("code", { text: e.code + ": " }), e.message))));
+}
+
+function ribbon(p) {
+  const div = el("div", { class: "ribbon " + (p.ocr_applied ? "ocr" : p.extraction_method === "native" && p.blocks.length ? "native" : "none") });
+  if (p.ocr_applied) {
+    const conf = p.ocr_mean_confidence ?? 0;
+    div.append(el("b", { text: "SCANNED" }), el("span", { text: `Page ${p.page_number}: no text layer (${p.assessment_reason || "image only"}) → read by Tesseract OCR` }),
+      el("span", {}, "avg confidence ", el("span", { class: "meter" }, el("i", { style: `width:${conf}%` })), ` ${conf}%`),
+      p.ocr_deskew_angle ? el("span", { text: `deskewed ${p.ocr_deskew_angle > 0 ? "+" : ""}${p.ocr_deskew_angle}°` }) : null,
+      el("span", { class: "muted", text: `${p.ocr_word_count ?? "?"} words` }));
+  } else if (p.extraction_method === "native" && p.blocks.length) {
+    div.append(el("b", { text: "DIGITAL" }), el("span", { text: `Page ${p.page_number}: text read directly from the PDF's text layer (${p.native_char_count} characters, exact)` }));
+  } else {
+    div.append(el("b", { text: p.is_empty ? "EMPTY" : "NOT READ" }), el("span", { text: `Page ${p.page_number}: ${p.is_empty ? "no content on this page" : (p.assessment_reason || "no text") + (p.needs_ocr ? " - turn OCR on to read it" : "")}` }));
   }
+  return div;
 }
 
 function renderPages(r) {
   const wrap = $("#pages"); wrap.replaceChildren();
   for (const p of r.pages) {
     const page = el("div", { class: "page", id: "page-" + p.page_number, dataset: { w: p.width, h: p.height } },
-      el("img", { src: `/api/page/${encodeURIComponent(r.document_id)}/${p.page_number}.png?zoom=1.6`, alt: `Page ${p.page_number}`, loading: "lazy" }),
-      el("span", { class: "pno", text: `Page ${p.page_number} · ${p.extraction_method}${p.ocr_applied ? " (OCR)" : ""}` }));
-    wrap.append(page);
+      el("img", { src: `/api/page/${encodeURIComponent(r.document_id)}/${p.page_number}.png?zoom=1.6`, alt: `Page ${p.page_number}`, loading: "lazy" }));
+    wrap.append(el("div", { class: "pagewrap" }, ribbon(p), page));
+    if (!(p.width > 0)) continue;
+    for (const b of p.blocks) for (const l of b.lines) for (const w of l.words) {
+      const c = w.ocr_confidence;
+      const cls = c == null ? "" : c >= 90 ? " c-hi" : c >= 70 ? " c-mid" : " c-lo";
+      page.append(el("div", { class: "word" + cls, style: boxStyle(w.bbox, page), title: c == null ? `"${w.text}" (text layer)` : `"${w.text}" OCR confidence ${c}%` }));
+    }
   }
   for (const e of r.entities) {
-    e.bboxes.forEach(b => {
-      // Boxes are drawn on the entity's page (entities spanning a page break are rare).
-      const page = $("#page-" + e.page_number); if (!page || !p_ok(page)) return;
-      page.append(boxEl(e, b, page));
-    });
+    const page = $("#page-" + e.page_number); if (!page || !(+page.dataset.w > 0)) continue;
+    for (const b of e.bboxes) page.append(el("div", { class: "box" + (COND.has(e.label) ? " cond" : ""), style: `${color(e.label)}; ${boxStyle(b, page)}`,
+      title: `${e.label}: ${e.cleaned_surface_text.slice(0, 120)}`, dataset: { id: e.entity_id, label: e.label }, onclick: ev => { ev.stopPropagation(); select(e.entity_id, false); } }));
   }
-  applyFilters();
-}
-const p_ok = page => +page.dataset.w > 0;
-function pct(v, total) { return (100 * v / total).toFixed(3) + "%"; }
-function boxEl(e, b, page) {
-  const W = +page.dataset.w, H = +page.dataset.h;
-  const d = el("div", {
-    class: "box" + (COND.has(e.label) ? " cond" : ""),
-    style: `${color(e.label)}; left:${pct(b.x0, W)}; top:${pct(b.y0, H)}; width:${pct(b.x1 - b.x0, W)}; height:${pct(b.y1 - b.y0, H)}`,
-    title: `${e.label}: ${e.cleaned_surface_text.slice(0, 120)}`,
-    dataset: { id: e.entity_id, label: e.label },
-    onclick: ev => { ev.stopPropagation(); select(e.entity_id, false); },
+  r.warnings.forEach((w, wi) => {
+    const sevCls = w.severity === "info" ? " info" : "";
+    for (const [li, loc] of w.locations.entries()) {
+      const page = $("#page-" + loc.page_number); if (!page) continue;
+      const W = +page.dataset.w, H = +page.dataset.h;
+      const whole = loc.bbox && loc.bbox.x0 <= 1 && loc.bbox.y0 <= 1 && loc.bbox.x1 >= W - 1;
+      if (whole || !loc.bbox) {
+        page.classList.add("flagged");
+        page.append(el("div", { class: "pagebanner wmark-banner", dataset: { w: wi } }, el("b", { text: "⚠ " + w.code + ": " }), w.message));
+        continue;
+      }
+      page.append(el("div", { class: "wmark" + sevCls, id: `w${wi}-${li}`, style: boxStyle(loc.bbox, page, 2), title: `${w.code}: ${loc.text || ""}\n\n${w.message}`,
+        onclick: () => { showTab("warnings"); $(`#warn-${wi}`)?.scrollIntoView({ behavior: "smooth", block: "center" }); } },
+        li === 0 || w.locations.length < 6 ? el("span", { text: "⚠ " + w.code.replaceAll("_", " ").toLowerCase() }) : null));
+    }
   });
-  return d;
+}
+
+function renderKeyPoints(r) {
+  const kps = r.key_points || [];
+  $("#nKp").textContent = kps.length;
+  const md = r.metadata;
+  const pane = $("#tab-summary");
+  pane.replaceChildren(
+    el("div", {}, el("b", { text: "What this document says, in plain English" }), el("span", { class: "doctype", text: DOC_TYPES[md.document_type] || "Unknown type" })),
+    el("div", { class: "disclaimer", style: "margin-top:8px" }, "Generated by rules from the extracted entities (no AI rewriting). Every point links to the exact clause and page it came from: click a point to see the original wording and highlight it on the page. ",
+      el("b", { text: "⚠ marks things worth checking before you sign." }), " This is a reading aid, not legal or financial advice, and it does not judge whether a term is fair."));
+  if (!kps.length) pane.append(el("p", { class: "muted", text: "No key points could be generated (no financial terms were found)." }));
+  const groups = {};
+  kps.forEach(k => (groups[k.category] ||= []).push(k));
+  for (const cat of Object.keys(CAT_TITLES)) {
+    if (!groups[cat]) continue;
+    const g = el("div", { class: "kp-group" }, el("h4", {}, el("span", { text: CAT_ICON[cat] }), CAT_TITLES[cat], el("span", { class: "count muted", text: `(${groups[cat].length})` })));
+    for (const k of groups[cat]) {
+      const clauses = k.clause_ids.map(id => state.clById[id]).filter(Boolean);
+      const node = el("div", { class: "kp" + (k.importance === "attention" ? " attention" : "") },
+        el("div", { class: "ic", text: k.importance === "attention" ? "⚠" : "•" }),
+        el("div", {}, el("div", { text: k.text }),
+          el("div", { class: "ref", text: `${clauses.map(c => "clause " + clauseName(c)).join(", ")} · page ${k.page_numbers.join(", ")}` }),
+          el("div", { class: "src" }, el("b", { text: "Original wording: " }), k.source_text)));
+      node.onclick = () => { node.classList.toggle("open"); highlightPoint(k); };
+      g.append(node);
+    }
+    pane.append(g);
+  }
+}
+
+function highlightPoint(k) {
+  $$(".box.lit").forEach(n => n.classList.remove("lit"));
+  let first = null;
+  for (const id of k.entity_ids) $$(`.box[data-id="${id}"]`).forEach(n => { n.classList.add("lit"); first ||= n; });
+  const c = state.clById[k.clause_ids[0]];
+  outlineClause(c);
+  if (first) first.scrollIntoView({ behavior: "smooth", block: "center" });
+  else if (c) scrollToPage(c.page_numbers[0]);
 }
 
 function renderChips(r) {
   const counts = {}; r.entities.forEach(e => counts[e.label] = (counts[e.label] || 0) + 1);
-  $("#chips").replaceChildren(...Object.keys(counts).sort().map(l => el("button", {
-    class: "chip", style: color(l), dataset: { label: l }, text: `${l.replaceAll("_", " ").toLowerCase()} · ${counts[l]}`,
-    onclick: ev => { state.hidden.has(l) ? state.hidden.delete(l) : state.hidden.add(l); ev.currentTarget.classList.toggle("off"); applyFilters(); },
-  })));
+  $("#chips").replaceChildren(...Object.keys(counts).sort().map(l => el("button", { class: "chip", style: color(l), text: `${l.replaceAll("_", " ").toLowerCase()} · ${counts[l]}`,
+    onclick: ev => { state.hidden.has(l) ? state.hidden.delete(l) : state.hidden.add(l); ev.currentTarget.classList.toggle("off"); applyToggles(); }, dataset: { chip: l } })));
   $("#nEnt").textContent = r.entities.length;
 }
-
-function renderEntities() {
-  const r = state.result;
-  $("#entRows").replaceChildren(...r.entities.map(e => {
-    const c = state.clById[e.clause_id];
-    return el("tr", { class: "row", dataset: { id: e.entity_id, label: e.label }, onclick: () => select(e.entity_id, true) },
-      el("td", {}, pill(e.label)),
-      el("td", { class: "mono", text: e.cleaned_surface_text.length > 70 ? e.cleaned_surface_text.slice(0, 70) + "…" : e.cleaned_surface_text }),
-      el("td", { class: "mono", text: e.normalized_value == null ? "—" : (e.normalized_value.length > 40 ? e.normalized_value.slice(0, 40) + "…" : e.normalized_value) }),
-      el("td", { text: clauseName(c) }),
-      el("td", { text: e.page_number }));
-  }));
+function renderEntities(r) {
+  $("#entRows").replaceChildren(...r.entities.map(e => el("tr", { class: "row", dataset: { id: e.entity_id, label: e.label }, onclick: () => select(e.entity_id, true) },
+    el("td", {}, pill(e.label)),
+    el("td", { class: "mono", text: e.cleaned_surface_text.length > 70 ? e.cleaned_surface_text.slice(0, 70) + "…" : e.cleaned_surface_text }),
+    el("td", { class: "mono", text: e.normalized_value == null ? "— (no value)" : e.normalized_value.slice(0, 40) }),
+    el("td", { text: clauseName(state.clById[e.clause_id]) }), el("td", { text: e.page_number }))));
 }
-
 function clauseText(c, focusId) {
   const text = c.cleaned_text, out = el("div", { class: "txt" });
-  const ents = c.entity_ids.map(id => state.entById[id]).filter(e => e && !COND.has(e.label))
-    .sort((a, b) => a.cleaned_start_offset - b.cleaned_start_offset);
+  const ents = c.entity_ids.map(id => state.entById[id]).filter(e => e && !COND.has(e.label)).sort((a, b) => a.cleaned_start_offset - b.cleaned_start_offset);
   let pos = 0;
   for (const e of ents) {
     if (e.cleaned_start_offset < pos) continue;
     out.append(text.slice(pos, e.cleaned_start_offset));
-    const m = el("mark", { style: color(e.label) + (focusId === e.entity_id ? ";outline:2px solid var(--c)" : ""), title: e.label,
-      dataset: { label: e.label }, onclick: ev => { ev.stopPropagation(); select(e.entity_id, true); } },
-      text.slice(e.cleaned_start_offset, e.cleaned_end_offset));
-    out.append(m); pos = e.cleaned_end_offset;
+    out.append(el("mark", { style: color(e.label) + (focusId === e.entity_id ? ";outline:2px solid var(--c)" : ""), title: e.label, dataset: { label: e.label },
+      onclick: ev => { ev.stopPropagation(); select(e.entity_id, true); } }, text.slice(e.cleaned_start_offset, e.cleaned_end_offset)));
+    pos = e.cleaned_end_offset;
   }
   out.append(text.slice(pos));
   return out;
 }
-
 function renderClauses(r) {
   $("#nCl").textContent = r.clauses.length;
-  $("#tab-clauses").replaceChildren(...r.clauses.map(c => {
+  $("#clauseList").replaceChildren(...r.clauses.map(c => {
     const conds = c.entity_ids.map(id => state.entById[id]).filter(e => e && COND.has(e.label));
-    const node = el("div", { class: `clause type-${c.clause_type}`, style: `margin-left:${Math.min(c.level, 6) * 16}px`, dataset: { id: c.clause_id },
-        onmouseenter: () => outlineClause(c), onmouseleave: () => outlineClause(null),
-        onclick: () => scrollToPage(c.page_numbers[0]) },
-      el("div", { class: "meta" },
-        (c.numbering_path || c.clause_number) ? el("b", { text: clauseName(c) }) : null, el("span", { text: c.clause_type }),
-        el("span", { text: "p. " + c.page_numbers.join(", ") }),
-        c.heading ? el("span", { text: "▸ " + c.heading }) : null,
-        el("span", { class: "mono", text: c.clause_id })),
-      clauseText(c),
+    // show the plain-English version only when it actually differs from the clause text (ignoring the clause number)
+    const norm = s => s.replace(/\s+/g, " ").trim();
+    const body = c.clause_number && c.cleaned_text.startsWith(c.clause_number) ? c.cleaned_text.slice(c.clause_number.length) : c.cleaned_text;
+    const plain = c.simplified_text && norm(c.simplified_text) !== norm(body) && norm(c.simplified_text) !== norm(c.cleaned_text) ? c.simplified_text : null;
+    return el("div", { class: `clause type-${c.clause_type}`, style: `margin-left:${Math.min(c.level, 6) * 14}px`, onmouseenter: () => outlineClause(c), onmouseleave: () => outlineClause(null), onclick: () => scrollToPage(c.page_numbers[0]) },
+      el("div", { class: "meta" }, (c.numbering_path || c.clause_number) ? el("b", { text: clauseName(c) }) : null, el("span", { text: c.clause_type }),
+        el("span", { text: "p. " + c.page_numbers.join(", ") }), c.heading ? el("span", { text: "▸ " + c.heading }) : null, el("span", { class: "mono", text: c.clause_id })),
+      clauseText(c), plain ? el("div", { class: "plain", text: plain }) : null,
       conds.length ? el("div", { class: "conds" }, ...conds.map(e => { const p = pill(e.label); p.style.cursor = "pointer"; p.onclick = ev => { ev.stopPropagation(); select(e.entity_id, true); }; return p; })) : null);
-    return node;
   }));
 }
 
 function renderWarnings(r) {
-  const items = [...r.errors.map(e => ({ ...e, error: true })), ...r.warnings];
+  const items = [...r.errors.map(e => ({ ...e, severity: "error", locations: [] })), ...r.warnings];
   $("#nWarn").textContent = items.length;
-  const artifacts = (r.metadata.excluded_artifact_lines || []);
-  $("#tab-warnings").replaceChildren(
-    ...(items.length ? items.map(w => el("div", { class: "warn" + (w.error ? " error" : "") },
-      el("code", { text: w.code }), w.page_number ? el("span", { class: "muted", text: `  page ${w.page_number}` }) : null,
-      el("pre", { text: w.message }))) : [el("p", { class: "muted", text: "No warnings." })]),
-    artifacts.length ? el("h4", { text: "Lines excluded as header/footer" }) : null,
-    ...artifacts.map(a => el("div", { class: "muted mono", text: `p${a.page_number} · ${a.reason} · "${a.text}"` })),
-    el("h4", { text: "Pipeline" }),
-    el("dl", {}, ...[["NLP", r.metadata.nlp_pipeline], ["Tesseract", r.metadata.tesseract_version || "not used"],
-      ["Version", r.metadata.extraction_version], ["Time", (r.metadata.processing_time_seconds ?? "?") + " s"],
-      ["Document ID", r.document_id]].flatMap(([k, v]) => [el("dt", { text: k }), el("dd", { class: "mono", text: String(v) })])));
+  const pane = $("#tab-warnings");
+  pane.replaceChildren(el("p", { class: "note", text: "Each warning says what happened, why, and what to do. Click a location to jump to it on the page (warnings are drawn as dashed amber boxes; whole-page warnings outline the page)." }));
+  if (!items.length) pane.append(el("p", { class: "muted", text: "No warnings: every page was read and every value was classified." }));
+  items.forEach((w, wi) => {
+    const idx = wi - r.errors.length;
+    const locs = w.locations || [];
+    pane.append(el("div", { class: "warn" + (w.severity === "info" ? " info" : w.severity === "error" ? " error" : ""), id: idx >= 0 ? `warn-${idx}` : null },
+      el("div", { class: "head" }, el("span", { class: "sev " + w.severity, text: w.severity }), el("code", { text: w.code }),
+        w.page_number ? el("span", { class: "muted", text: `page ${w.page_number}` }) : null,
+        locs.length ? el("span", { class: "muted", text: `${locs.length} location${locs.length > 1 ? "s" : ""} on the page` }) : el("span", { class: "muted", text: "applies to the whole document" })),
+      el("pre", { text: w.message }),
+      locs.length ? el("div", {}, ...locs.slice(0, 40).map((loc, li) => el("span", { class: "loc", text: `p${loc.page_number}${loc.text ? " · " + loc.text.replace(/\s+/g, " ").slice(0, 50) : " · whole page"}`,
+        onclick: () => flashWarning(idx, li, loc) })), locs.length > 40 ? el("span", { class: "muted", text: ` +${locs.length - 40} more` }) : null) : null));
+  });
+}
+function flashWarning(wi, li, loc) {
+  $("#tWarn").checked = true; applyToggles();
+  $$(".wmark.lit").forEach(n => n.classList.remove("lit"));
+  const m = $(`#w${wi}-${li}`);
+  if (m) { m.classList.add("lit"); m.scrollIntoView({ behavior: "smooth", block: "center" }); }
+  else scrollToPage(loc.page_number);
+  if (loc.entity_id) select(loc.entity_id, false);
+}
+
+function renderPipeline(r) {
+  const md = r.metadata, pane = $("#tab-pipeline");
+  const stage = (n, title, ...kids) => el("div", { class: "stage" }, el("h4", {}, el("span", { class: "n", text: n }), title), ...kids);
+  const pageRows = r.pages.map(p => el("tr", {}, el("td", { text: p.page_number }),
+    el("td", { text: p.ocr_applied ? "Scanned → OCR" : p.is_empty ? "Empty" : p.blocks.length ? "Digital text" : "Not read" }),
+    el("td", { text: p.native_char_count }), el("td", { text: p.has_images ? "yes" : "no" }),
+    el("td", { class: "note", text: p.assessment_reason || (p.blocks.length ? "text layer has enough readable text: no OCR needed" : "—") })));
+  const ocrPages = r.pages.filter(p => p.ocr_applied);
+  const low = r.warnings.find(w => w.code === "LOW_OCR_CONFIDENCE");
+  const changed = r.clauses.filter(c => c.original_text.replace(/\s+/g, " ").trim() !== c.cleaned_text.replace(/\s+/g, " ").trim());
+  const tableRows = r.clauses.filter(c => c.original_text.includes("\t")).length;
+  const types = {}; r.clauses.forEach(c => types[c.clause_type] = (types[c.clause_type] || 0) + 1);
+  const methods = {}; r.entities.forEach(e => methods[e.extraction_method] = (methods[e.extraction_method] || 0) + 1);
+  const labels = md.label_counts || {}; const maxL = Math.max(1, ...Object.values(labels));
+  const cats = {}; (r.key_points || []).forEach(k => cats[k.category] = (cats[k.category] || 0) + 1);
+  pane.replaceChildren(
+    el("p", { class: "note", text: `What each stage of the Person 1 pipeline did with this document (extraction v${md.extraction_version}, ${md.processing_time_seconds} s).` }),
+    stage("1", "PDF processing & scanned-page detection (PyMuPDF)",
+      el("table", {}, el("thead", {}, el("tr", {}, ...["Page", "Read as", "Text chars", "Images", "Decision"].map(h => el("th", { text: h })))), el("tbody", {}, ...pageRows))),
+    stage("2", "OCR (Tesseract)", ocrPages.length ? el("div", {},
+      el("div", { text: `Tesseract ${md.tesseract_version || ""} on page(s) ${ocrPages.map(p => p.page_number).join(", ")}.` }),
+      ...ocrPages.map(p => el("div", { class: "note" }, `Page ${p.page_number}: image cleaning → ${p.ocr_preprocessing.join(" → ") || "none"}; ${p.ocr_word_count} words, mean confidence ${p.ocr_mean_confidence}%.`)),
+      el("div", { class: "note", text: low ? `${low.locations.length} low-confidence word(s) flagged (see Warnings). Turn on "Words read" to see every OCR word coloured by confidence.` : "No low-confidence words." }))
+      : el("div", { class: "note", text: md.ocr_enabled ? "Not needed: every page had a usable text layer. Try a demo's \"Scanned (OCR)\" button to see OCR at work." : "OCR is switched off." })),
+    stage("3", "Text preprocessing (cleaning with offset map)",
+      el("div", { class: "note", text: `${md.excluded_artifact_lines.length} running header/footer/page-number line(s) removed from clauses. ${changed.length} clause(s) changed by more than whitespace (hyphenation repaired, ligatures/quotes normalised). The original text is always kept.` }),
+      ...changed.slice(0, 4).map(c => { const o = c.original_text, cl = c.cleaned_text;
+        const i = [...o].findIndex((ch, k) => ch === "-" && o[k + 1] === "\n");
+        const from = Math.max(0, (i >= 0 ? i : 0) - 40);
+        return el("div", { class: "diff" }, el("div", { class: "mono", text: "original: …" + o.slice(from, from + 110) }), el("div", { class: "mono", text: "cleaned: …" + cl.slice(Math.max(0, from - 2), from + 106) })); })),
+    stage("4", "Clause segmentation",
+      el("div", { text: Object.entries(types).map(([k, v]) => `${v} ${k}${v > 1 ? "s" : ""}`).join(" · ") }),
+      el("div", { class: "note", text: `Max nesting depth ${Math.max(0, ...r.clauses.map(c => c.level))}; ${r.clauses.filter(c => c.page_numbers.length > 1).length} clause(s) continue across pages; ${tableRows} table row(s) kept together.` })),
+    stage("5", "Financial entity extraction (regex + spaCy span ruler + context rules)",
+      el("div", { class: "note", text: Object.entries(methods).map(([k, v]) => `${v} × ${k}`).join(" · ") + `  (NLP: ${md.nlp_pipeline})` }),
+      el("div", { class: "bars" }, ...Object.entries(labels).map(([l, v]) => el("div", {}, el("span", { class: "b", style: `${color(l)};width:${(v / maxL) * 140}px;background:var(--c)` }), el("span", { text: `${l} ${v}` }))))),
+    stage("6", "Plain-language layer (rules & templates)",
+      el("div", { class: "note", text: `${(r.key_points || []).length} key points: ` + Object.entries(cats).map(([k, v]) => `${CAT_TITLES[k] || k} ${v}`).join(" · ") + `. ${r.clauses.filter(c => c.simplified_text).length} clauses rewritten in plain English.` })));
 }
 
 function renderJson(r) {
   const txt = JSON.stringify(r, null, 2);
-  $("#jsonPre").textContent = txt.length > 200000 ? txt.slice(0, 200000) + "\n… (truncated – use Download)" : txt;
-  $("#download").onclick = () => {
-    const a = el("a", { href: URL.createObjectURL(new Blob([txt], { type: "application/json" })), download: r.filename.replace(/\.pdf$/i, "") + ".json" });
-    a.click(); URL.revokeObjectURL(a.href);
-  };
+  $("#jsonPre").textContent = txt.length > 150000 ? txt.slice(0, 150000) + "\n… (truncated – use Download)" : txt;
+  $("#download").onclick = () => { const a = el("a", { href: URL.createObjectURL(new Blob([txt], { type: "application/json" })), download: r.filename.replace(/\.pdf$/i, "") + ".json" }); a.click(); };
 }
 
-// ---------- interaction ----------
-function applyFilters() {
-  const showCond = $("#showCond").checked;
-  document.querySelectorAll("[data-label]").forEach(n => {
-    if (n.classList.contains("chip")) return;
-    const hide = state.hidden.has(n.dataset.label) || (n.classList.contains("cond") && !showCond);
-    n.classList.toggle("hidden-label", hide);
-  });
+// ---------------- interaction ----------------
+function applyToggles() {
+  const pages = $("#pages");
+  pages.classList.toggle("hide-ent", !$("#tEnt").checked);
+  pages.classList.toggle("hide-cond", !$("#tCond").checked);
+  pages.classList.toggle("hide-warn", !$("#tWarn").checked);
+  pages.classList.toggle("hide-words", !$("#tWords").checked);
+  $$(".pagebanner").forEach(b => b.style.display = $("#tWarn").checked ? "" : "none");
+  $$("[data-label]").forEach(n => n.classList.toggle("hidden-label", state.hidden.has(n.dataset.label)));
+  $("#clauseList").classList.toggle("noplain", !$("#tPlain").checked);
+  $$(".clause .plain").forEach(n => n.style.display = $("#tPlain").checked ? "" : "none");
 }
-$("#showCond").onchange = applyFilters;
-
+["tEnt", "tCond", "tWarn", "tWords", "tPlain"].forEach(id => $("#" + id).onchange = applyToggles);
 function scrollToPage(n) { $("#page-" + n)?.scrollIntoView({ behavior: "smooth", block: "start" }); }
-
 function outlineClause(c) {
-  document.querySelectorAll(".clause-outline").forEach(n => n.remove());
+  $$(".clause-outline").forEach(n => n.remove());
   if (!c) return;
-  for (const loc of c.source_locations) {
-    const page = $("#page-" + loc.page_number); if (!page || !loc.bbox) continue;
-    const W = +page.dataset.w, H = +page.dataset.h, b = loc.bbox, pad = 3;
-    page.append(el("div", { class: "clause-outline", style: `left:${pct(b.x0 - pad, W)}; top:${pct(b.y0 - pad, H)}; width:${pct(b.x1 - b.x0 + 2 * pad, W)}; height:${pct(b.y1 - b.y0 + 2 * pad, H)}` }));
-  }
+  for (const loc of c.source_locations) { const page = $("#page-" + loc.page_number); if (page && loc.bbox) page.append(el("div", { class: "clause-outline", style: boxStyle(loc.bbox, page, 3) })); }
 }
-
 function select(id, scrollPage) {
   const e = state.entById[id]; if (!e) return;
-  state.selected = id;
-  document.querySelectorAll(".box.selected, tr.row.selected").forEach(n => n.classList.remove("selected"));
-  document.querySelectorAll(`.box[data-id="${id}"]`).forEach(n => n.classList.add("selected"));
-  const row = document.querySelector(`tr.row[data-id="${id}"]`);
-  if (row) { row.classList.add("selected"); row.scrollIntoView({ block: "nearest" }); }
-  const box = document.querySelector(`.box[data-id="${id}"]`);
-  if (scrollPage && box) box.scrollIntoView({ behavior: "smooth", block: "center" });
+  $$(".box.selected, tr.row.selected").forEach(n => n.classList.remove("selected"));
+  $$(`.box[data-id="${id}"]`).forEach(n => n.classList.add("selected"));
+  const row = $(`tr.row[data-id="${id}"]`); if (row) row.classList.add("selected");
+  const box = $(`.box[data-id="${id}"]`); if (scrollPage && box) box.scrollIntoView({ behavior: "smooth", block: "center" });
   showDetails(e);
 }
-
 function showDetails(e) {
-  const c = state.clById[e.clause_id];
-  const ev = e.evidence || {};
-  const rows = [
-    ["Original text", JSON.stringify(e.surface_text)],
-    ["Normalised", e.normalized_value ?? "— (no value stated)"],
-    ["Numeric / unit", [e.numeric_value, e.unit, e.currency && e.currency !== e.unit ? e.currency : null].filter(x => x != null).join("  ·  ") || "—"],
+  const c = state.clById[e.clause_id], ev = e.evidence || {};
+  const rows = [["Original text", JSON.stringify(e.surface_text)], ["Normalised", e.normalized_value ?? "— (no value stated)"],
+    ["Numeric / unit", [e.numeric_value, e.unit, e.currency && e.currency !== e.unit ? e.currency : null].filter(x => x != null).join(" · ") || "—"],
     ["Location", `page ${e.page_number} · clause ${clauseName(c)} (${e.clause_id}) · chars ${e.start_offset}–${e.end_offset}`],
-    ["Method", e.extraction_method],
-    ["Rule", ev.rule || "—"],
-    ["Trigger", ev.trigger_text ? `"${ev.trigger_text}" (${ev.trigger_label}, ${ev.trigger_source})` : "none (pattern only)"],
-    ...Object.entries(e.attributes || {}).map(([k, v]) => [k, typeof v === "object" ? JSON.stringify(v) : String(v)]),
-  ];
+    ["Method", e.extraction_method], ["Rule", ev.rule || "—"],
+    ["Trigger", ev.trigger_text ? `"${ev.trigger_text}" (${ev.trigger_label || ""}, ${ev.trigger_source})` : "none (pattern only)"],
+    ...Object.entries(e.attributes || {}).map(([k, v]) => [k, typeof v === "object" ? JSON.stringify(v) : String(v)])];
   const d = $("#details");
-  d.replaceChildren(
-    el("h3", {}, pill(e.label), el("span", { class: "mono", text: e.entity_id }), el("button", { class: "close", text: "✕", onclick: hideDetails })),
+  d.replaceChildren(el("h3", {}, pill(e.label), el("span", { class: "mono", text: e.entity_id }), el("button", { class: "close", text: "✕", onclick: hideDetails })),
     el("dl", {}, ...rows.flatMap(([k, v]) => [el("dt", { text: k }), el("dd", { class: "mono", text: v })])),
-    c ? el("div", { class: "ctx" }, el("div", { class: "muted", style: "font-size:12px;margin-bottom:4px", text: `${clauseName(c)} · ${c.heading || ""}` }), clauseText(c, e.entity_id)) : null);
+    c ? el("div", { class: "ctx" }, el("div", { class: "muted", style: "font-size:12px;margin-bottom:4px", text: `${clauseName(c)} · ${c.heading || ""}` }), clauseText(c, e.entity_id),
+      c.simplified_text ? el("div", { style: "margin-top:6px;font-size:13px" }, el("b", { text: "Plain English: " }), c.simplified_text) : null) : null);
   d.classList.add("show");
 }
-function hideDetails() { $("#details").classList.remove("show"); document.querySelectorAll(".selected").forEach(n => n.classList.remove("selected")); }
+function hideDetails() { $("#details").classList.remove("show"); $$(".selected").forEach(n => n.classList.remove("selected")); }
 document.addEventListener("keydown", e => { if (e.key === "Escape") hideDetails(); });
-
 function showTab(name) {
-  document.querySelectorAll(".tab, .tabpane").forEach(n => n.classList.remove("active"));
-  document.querySelector(`.tab[data-tab="${name}"]`)?.classList.add("active"); $("#tab-" + name)?.classList.add("active");
+  $$(".tab, .tabpane").forEach(n => n.classList.remove("active"));
+  $(`.tab[data-tab="${name}"]`)?.classList.add("active"); $("#tab-" + name)?.classList.add("active");
 }
-document.querySelectorAll(".tab").forEach(t => t.onclick = () => showTab(t.dataset.tab));
+$$(".tab").forEach(t => t.onclick = () => showTab(t.dataset.tab));
 
-// Optional: ?sample=digital|scanned loads a sample on open, &tab=clauses picks a tab, &select=entity_0011 selects an entity.
+// URL shortcuts: ?demo=<id>&scanned=1&tab=warnings&words=1
 (async () => {
+  await loadGallery().catch(e => setStatus("Could not load demo documents: " + e.message));
   const q = new URLSearchParams(location.search);
-  const kind = q.get("sample");
-  if (kind === "digital" || kind === "scanned") {
-    await run(() => post(`/api/sample?kind=${kind}&ocr=${q.get("ocr") === "0" ? "0" : "1"}`), `synthetic ${kind} sample`);
+  if (q.get("words") === "1") $("#tWords").checked = true;
+  if (q.get("demo")) {
+    await run(() => post(`/api/demo/${q.get("demo")}?scanned=${q.get("scanned") === "1" ? 1 : 0}&ocr=1`), "demo document");
     if (q.get("tab")) showTab(q.get("tab"));
-    if (q.get("select")) select(q.get("select"), false);
+    applyToggles();
   }
 })();
 </script>

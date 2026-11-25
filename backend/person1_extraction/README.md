@@ -1,13 +1,22 @@
-# FinClause – Person 1: PDF Processing, Text Extraction & Financial Entity Extraction
+# FinClause – Person 1: PDF Processing, OCR, Text Extraction & Financial Entity Extraction
 
-`finclause_extraction` turns a personal-loan-agreement PDF into structured, validated JSON:
-pages → text blocks → clauses (with hierarchy) → financial entities (with normalised values).
+`finclause_extraction` turns a loan agreement, Key Fact Statement, sanction letter, insurance policy or EMI-terms PDF
+into structured, validated JSON. It extracts pages, text blocks, clauses (with hierarchy) and financial entities
+(with normalised values), adds plain-language key points, and returns warnings that point to exact locations on the page.
 
-**Core guarantee: every extracted entity can be traced to its exact clause, its character offsets inside
-that clause, its page, and its bounding box on the page.**
+**Core guarantee: every extracted entity, key point and warning can be traced to its exact clause, its character
+offsets, its page, and its bounding box on the page.**
 
-> This module **extracts and organises** information for further analysis and human review.
-> It never decides whether a charge is hidden, unfair, illegal or fraudulent.
+> This module **extracts and organises** information for further analysis and human review. It never decides whether
+> a charge is hidden, unfair, illegal or fraudulent, and its plain-language output is a reading aid, not legal or financial advice.
+
+## Contents
+1. [Scope](#1-scope) · 2. [Folder structure](#2-folder-structure) · 3. [Setup on Windows](#3-setup-on-windows) ·
+4. [Quick demo](#4-quick-demo-visual-viewer) · 5. [How the pipeline works](#5-how-the-pipeline-works) ·
+6. [Entity labels](#6-entity-labels) · 7. [Plain-language key points](#7-plain-language-key-points) ·
+8. [Warnings](#8-warnings) · 9. [Output schema](#9-output-schema) · 10. [Python API & CLI](#10-python-api-and-cli) ·
+11. [Integration for Person 2 & 3](#11-integration-for-person-2-and-person-3) · 12. [Demo documents](#12-demo-documents) ·
+13. [Tests](#13-tests) · 14. [Limitations](#14-limitations-and-known-edge-cases) · 15. [Remaining work](#15-remaining-work)
 
 ---
 
@@ -16,398 +25,375 @@ that clause, its page, and its bounding box on the page.**
 | In scope (Person 1) | Out of scope |
 |---|---|
 | PDF loading/validation (missing, corrupted, encrypted, non-PDF, zero pages) | Clause classification, semantic retrieval, contradiction detection (**Person 2**) |
-| Native text extraction with block/line/word boxes (PyMuPDF) | Plain-English explanations, reports, React UI (**Person 3**) |
-| Scanned-page detection and OCR (Tesseract) | The FastAPI application itself (**Person 3**) |
+| Native text extraction with block/line/word boxes (PyMuPDF) | Rich explanations, reports, the React product UI (**Person 3**) |
+| Scanned-page detection, OCR image preprocessing (deskew, denoise, binarise), Tesseract OCR | The FastAPI application (**Person 3**) |
 | Cleaning with an offset map back to the original text | Model training |
-| Clause & paragraph segmentation with parent/child links | |
+| Clause, paragraph and table-row segmentation with parent/child links | |
 | Financial entity extraction (regex + spaCy) and normalisation | |
-| Pydantic output schema, CLI, tests | |
+| Rule-based plain-language key points and simplified clause text (traceable, deterministic) | |
+| Located warnings, Pydantic schema, CLI, local demo viewer, tests | |
 
-The package does **not** depend on FastAPI, Streamlit or any frontend code.
+**Note on scope:** the plain-language layer was added at the team's request. It is template-based and fully traceable
+(each point lists its source clause and entities), so Person 3 can show it as-is or build richer explanations on top.
 
 ## 2. Folder structure
 
 ```
 backend/person1_extraction/
-├── pyproject.toml              # installable package (pip install -e .)
-├── requirements.txt
-├── README.md
-├── .gitignore                  # keeps data/ and models/ contents out of git
+├── pyproject.toml / requirements.txt / requirements-lock.txt / setup_windows.ps1 / .env.example
 ├── src/finclause_extraction/
 │   ├── __init__.py             # public API: analyze_pdf, analyze_pdf_bytes, analyze_text, schemas
-│   ├── config.py               # ExtractionConfig (all thresholds), offset documentation
-│   ├── schemas.py              # Pydantic models (Page, TextBlock, Clause, Entity, ExtractionResult, ...)
-│   ├── pipeline.py             # orchestrates all stages, error handling, traceability mapping
-│   ├── text_input.py           # plain text -> Page objects (for analyze_text / tests)
-│   ├── samples.py              # synthetic (fictional) agreement PDFs for tests & demos
+│   ├── config.py               # ExtractionConfig (all thresholds); offset documentation
+│   ├── schemas.py              # Pydantic models (Page, TextBlock, Clause, Entity, KeyPoint, ExtractionResult, ...)
+│   ├── pipeline.py             # orchestrates all stages; located warnings; traceability mapping
 │   ├── pdf/
-│   │   ├── extractor.py        # open/validate PDF, blocks/lines/words, page assessment
-│   │   └── ocr.py              # Tesseract OCR, availability check, actionable install help
+│   │   ├── extractor.py        # open/validate PDF, blocks/lines/words, page assessment (scanned? empty?)
+│   │   └── ocr.py              # Tesseract discovery, image preprocessing (deskew etc.), OCR -> blocks in PDF coordinates
 │   ├── preprocessing/
 │   │   ├── cleaner.py          # cleaning with an offset map (never loses the original)
-│   │   └── segmenter.py        # header/footer removal, clause tree, sentence splitting
-│   └── entities/
-│       ├── patterns.py         # value regexes, trigger lexicon, context regexes
-│       ├── ner.py              # regex + spaCy span_ruler + context rules + spaCy NER fallback
-│       └── normalizer.py       # money / % / bps / date / duration normalisation (Decimal-exact)
+│   │   └── segmenter.py        # header/footer removal, table rows, clause tree, sentence splitting
+│   ├── entities/
+│   │   ├── patterns.py         # value regexes, trigger lexicon, condition cues
+│   │   ├── ner.py              # regex + spaCy span_ruler + context rules + spaCy NER fallback
+│   │   └── normalizer.py       # money / % / bps / date / duration normalisation (Decimal-exact)
+│   ├── summary/
+│   │   ├── simplifier.py       # legal -> plain English rewriting rules + glossary
+│   │   ├── key_points.py       # key points from entities (templates)
+│   │   └── doc_type.py         # keyword-based document type detection
+│   ├── demo_documents.py       # 5 curated fictional demo documents (loan x3, insurance, EMI)
+│   ├── samples.py              # PDF builders: text PDFs, tables, photocopy-style scans
+│   └── text_input.py           # plain text -> Page objects (for analyze_text / tests)
 ├── scripts/
-│   ├── run_extraction.py       # CLI
 │   ├── demo_server.py          # local visual viewer (stdlib HTTP server)
-│   └── make_sample_pdf.py      # writes synthetic demo PDFs into data/raw/
+│   ├── run_extraction.py       # CLI
+│   └── make_sample_pdf.py      # writes synthetic PDFs into data/raw/
 ├── demo/index.html             # viewer page (plain HTML/JS, no external dependencies)
-├── tests/                      # 176 pytest tests (synthetic fixtures only)
+├── tests/                      # 223 pytest tests (synthetic fixtures only)
 ├── data/{raw,processed,annotations}/   # git-ignored except .gitkeep
 └── models/                     # git-ignored; place a custom spaCy model here later
 ```
 
 ## 3. Setup on Windows
 
-From the repository root (`FinClause/`), in PowerShell:
+One command from the repository root (creates `venv`, installs everything, installs Tesseract, runs the tests):
 
 ```powershell
-# 1. Create / activate a virtual environment (Python 3.10+)
+powershell -ExecutionPolicy Bypass -File backend\person1_extraction\setup_windows.ps1 -InstallTesseract
+```
+
+Manual steps:
+
+```powershell
 py -3.10 -m venv venv
-.\venv\Scripts\Activate.ps1
-#   (if activation is blocked: Set-ExecutionPolicy -Scope CurrentUser RemoteSigned)
-
-# 2. Install dependencies and the package (editable)
-python -m pip install --upgrade pip
-pip install -r backend\person1_extraction\requirements.txt
+.\venv\Scripts\Activate.ps1                 # if blocked: Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+pip install -r backend\person1_extraction\requirements.txt   # includes the spaCy en_core_web_sm model
 pip install -e backend\person1_extraction
-
-# 3. spaCy English model (separate download, ~13 MB)
-python -m spacy download en_core_web_sm
+winget install --id UB-Mannheim.TesseractOCR -e               # only needed for scanned PDFs
 ```
 
-No PyTorch, Transformers or other large models are needed.
-If `en_core_web_sm` is missing, the pipeline still runs, falling back to a blank tokenizer. Rule-based extraction
-still works, but the pretrained NER fallback is disabled, and the result carries a `SPACY_MODEL_UNAVAILABLE` warning.
+* `requirements-lock.txt` pins the exact versions the test suite passed with.
+* No PyTorch, Transformers or other large models are needed.
+* Without `en_core_web_sm`, the pipeline falls back to a blank tokenizer: rule-based extraction still works, and a
+  `SPACY_MODEL_UNAVAILABLE` warning is returned.
+* **Tesseract:** the pipeline looks for it in this order: `ExtractionConfig(tesseract_cmd=...)` / `--tesseract-cmd`,
+  then `FINCLAUSE_TESSERACT_CMD`, then PATH, then the standard install folders (`%ProgramFiles%\Tesseract-OCR`,
+  `%ProgramFiles(x86)%\...`, `%LOCALAPPDATA%\Programs\...`). Without Tesseract, digital PDFs still work; scanned pages are
+  reported with `OCR_UNAVAILABLE` / `PAGE_NOT_EXTRACTED` warnings that include installation steps.
 
-### Tesseract OCR (only needed for scanned PDFs)
-
-Tesseract is a separate program, not a pip package.
-
-1. Download the Windows installer from <https://github.com/UB-Mannheim/tesseract/wiki> and install it
-   (default: `C:\Program Files\Tesseract-OCR\`).
-2. Make it findable using **one** of these options:
-   * add `C:\Program Files\Tesseract-OCR` to your **PATH** (System Properties → Environment Variables), then open a new terminal; or
-   * set `FINCLAUSE_TESSERACT_CMD` to the full path of `tesseract.exe`:
-     `setx FINCLAUSE_TESSERACT_CMD "C:\Program Files\Tesseract-OCR\tesseract.exe"`; or
-   * pass `--tesseract-cmd "C:\...\tesseract.exe"` (CLI) / `ExtractionConfig(tesseract_cmd=...)` (Python).
-3. Check that it works: `tesseract --version` (in a **new** terminal)
-
-   Quick install alternative: `winget install --id UB-Mannheim.TesseractOCR -e` (the English language data is included).
-
-If Tesseract is not on PATH, the pipeline also checks the standard install folders
-(`%ProgramFiles%\Tesseract-OCR`, `%ProgramFiles(x86)%\Tesseract-OCR`, `%LOCALAPPDATA%\Programs\Tesseract-OCR`).
-This means OCR also works in terminals that were opened before the install.
-
-Without Tesseract, digital PDFs are processed normally. Scanned pages are reported (status `partial`,
-warnings `OCR_UNAVAILABLE` + `PAGE_NOT_EXTRACTED` with these instructions) and the pipeline does not crash.
-
-## 4. Running the tests
+## 4. Quick demo (visual viewer)
 
 ```powershell
 cd backend\person1_extraction
-python -m pytest            # all tests
-python -m pytest -v tests\test_entity_extraction.py   # one file
+python scripts\demo_server.py          # opens http://127.0.0.1:8765
 ```
 
-Tests generate their own synthetic PDFs, so no confidential documents are needed. Most OCR tests mock Tesseract, so they
-run anywhere. Three tests run the real Tesseract binary (version check, OCR of a scanned page, and a full scanned-PDF
-pipeline run). They are reported as *skipped* on machines without Tesseract.
+1. Click a **demo document**: **▶ Digital PDF** reads the text layer; **▶ Scanned (OCR)** runs the same document as a
+   skewed, noisy photocopy that must be read by OCR. Or upload / drag in your own PDF.
+2. **Summary** tab: what the document says in plain English, grouped (The basics, Fees and charges, Interest,
+   Repayment, If you pay late, If you default, Security and guarantees, What is covered / not covered, Cancellation,
+   Terms that can change, Key dates, Worth checking before you sign). ⚠ marks items worth checking. Click a point to
+   see the original wording and highlight its source on the page.
+3. **Pages**: each page has a **DIGITAL** (green) or **SCANNED** (amber) badge that explains how it was read, with the
+   OCR confidence meter and deskew angle for scanned pages. Toggles control the overlays: entities, condition sentences,
+   warnings, and **words read** (each OCR word coloured by confidence: green ≥ 90 %, amber 70–90 %, red < 70 %).
+4. **Entities** (filter by label, click for evidence), **Clauses** (original and plain-English version side by side),
+   **Warnings** (what, why, what to do, and clickable locations), **Pipeline** (what every stage did),
+   **JSON** (download).
 
-## 5. Command-line interface
+The server uses only the Python standard library plus this package, listens on localhost only, and keeps uploaded PDFs
+in memory (20 most recent). URL shortcuts for demos:
+`/?demo=northwind_bank_personal_loan_agreement`, `/?demo=kaveri_cooperative_bank_sanction_letter&scanned=1&tab=warnings&words=1`.
+This viewer is a developer/demo tool for Person 1's output, **not** Person 3's product frontend.
 
-```powershell
-cd backend\person1_extraction
-python scripts\make_sample_pdf.py                       # creates data\raw\synthetic_loan_agreement.pdf
-python scripts\run_extraction.py --input data\raw\synthetic_loan_agreement.pdf --output data\processed\result.json
+## 5. How the pipeline works
+
+```
+PDF validation → native extraction (PyMuPDF) → scanned-page detection → [OCR image preprocessing → Tesseract]
+→ header/footer detection → table rows + clause segmentation → cleaning (offset map)
+→ entity extraction (regex + spaCy) → normalisation → key points & simplified text → located warnings → Pydantic result
 ```
 
-| Option | Meaning |
+**1. PDF processing.** Every page is read with PyMuPDF (`rawdict`, reading order top-to-bottom), giving blocks → lines →
+words with boxes and font weight. A page is **scanned** if it has fewer than `min_native_chars` (25) characters but
+contains images/graphics, or if > 30 % of its characters are unmappable glyphs. It is **empty** if it has no text,
+images or drawings. Pages with good text are never OCR'd (unless `force_ocr`).
+
+**2. OCR.** The page is rendered at 300 dpi and cleaned before Tesseract (`ocr_preprocess=True`):
+grayscale → contrast stretch → 3×3 median filter (removes toner speckles) → **deskew** (projection-profile search
+over ±3°, applied only if ≥ 0.2°) → Otsu binarisation. OCR boxes are rotated back and scaled, so they line up with
+the original page. Lone punctuation read with < 50 % confidence (speckles) is dropped and counted. Each page records
+`ocr_preprocessing`, `ocr_deskew_angle`, `ocr_mean_confidence` and `ocr_word_count`. On the demo photocopy,
+preprocessing raised mean confidence from 90.3 % to 93.6 % and cut low-confidence words from 9 to 1.
+
+**3. Cleaning** (`cleaner.py`) keeps a character-level map back to the original. It removes zero-width and control
+characters, expands ligatures, normalises quotes/dashes/spaces, rejoins hyphenated words (`pay-\nment` → `payment`,
+but `pre-\npayment` → `pre-payment`), turns line breaks into spaces, keeps paragraph breaks, and repairs OCR spaces
+inside currency amounts (`Rs. 3, 000` → `Rs. 3,000`, only after ₹/Rs./INR so lists like `12, 24 and 36` are untouched).
+Digits, currency symbols, `%`, decimals and clause numbers are never altered (enforced by tests).
+
+**4. Segmentation** (`segmenter.py`) works on lines:
+* running headers/footers (repeated in the top/bottom 8 % band on ≥ half the pages) and page numbers are excluded from
+  clauses and reported;
+* **table rows**: a line to the right of the previous one on the same row is a cell of that row; each row becomes one
+  clause (`"Loan amount sanctioned Rs. 3,00,000"`), cells joined by `\t` in `original_text`;
+* clause markers `Section 7 –`, `Article II`, `Clause 5`, `1.`, `1.1`, `1.1.1`, `2(a)`, `(i)`, `a)`, `a.`, bullets;
+  decimals such as `2.5 lakh` at a line start are rejected; parent/child links follow numbering, list style and indentation;
+* headings (bold/upper-case/title-like), paragraphs, and clauses that continue across blocks and pages.
+
+**5. Entity extraction** (`ner.py`): regex finds values; a spaCy `span_ruler` finds trigger phrases; documented
+context rules decide what each value means (R1 trigger after the value with a connector, "Rs. 500 **as** late fee";
+R2 nearest trigger before it in the sentence; R3 a specific trigger shortly after; R4 the parent clause's lead-in,
+"Foreclosure charges shall be levied as under:" → "(a) 4% ..."; R5 the heading; R6 a generic label). Text such as
+"of the loan amount" is stored as the value's `basis` and is never used as a trigger; a tax word only labels the value
+it directly precedes; negated mentions ("without any foreclosure charges") are ignored. The pretrained spaCy NER only
+adds DATE/MONEY/PERCENT where no regex entity overlaps. No confidence scores are invented.
+
+**6. Normalisation** (`normalizer.py`, Decimal-exact):
+
+| Input | `normalized_value` | Notes |
+|---|---|---|
+| `₹5,000`, `Rs. 10,000`, `INR 1,25,000` | `5000 INR`, `10000 INR`, `125000 INR` | |
+| `Rs. 2.5 lakh`, `₹5 crore` | `250000 INR`, `50000000 INR` | lakh = 10⁵, crore = 10⁷ |
+| `2.5 lakh`, `10,000/-` | `250000`, `10000` | **currency never assumed**: `currency: null` + `currency_hint` |
+| `12.5% p.a.` / `1.5 percent per month` / `1% of the Sum Insured per day` | `12.5% per annum` / `1.5% per month` / `1% per day` | periods never converted |
+| `250 basis points` | `250 bps (2.5%)` | |
+| `05/03/2025` | `2025-03-05` | ambiguous → DMY + `AMBIGUOUS_DATE` warning |
+| `thirty (30) days`, `12 to 24 months`, `3, 6 and 9 months`, `36 EMIs` | `30 days`, `12 to 24 months`, `3, 6 or 9 months`, `36 instalments` | |
+
+## 6. Entity labels
+
+**Value labels** (one span = one value):
+
+| Label | Example |
 |---|---|
-| `--input/-i` | PDF to process (required) |
-| `--output/-o` | JSON output (default `data/processed/<name>.json`) |
-| `--no-ocr` / `--force-ocr` | disable OCR / OCR every page |
-| `--tesseract-cmd PATH`, `--ocr-lang eng+hin` | OCR configuration |
-| `--spacy-model NAME_OR_PATH`, `--no-spacy-model` | choose spaCy pipeline / rules only |
-| `--no-words` | drop word boxes from `pages` (entity boxes are kept) |
-| `--date-order DMY\|MDY` | how to read ambiguous dates like 05/03/2025 (default DMY) |
-| `--password`, `--document-id`, `--compact`, `-v`, `-q` | misc |
+| `INTEREST_RATE` | interest at **12.5% p.a.**, APR **17.9%**, spread of **250 basis points** |
+| `PROCESSING_FEE` | processing fee of **2%**, minimum **Rs. 3,000** |
+| `PENALTY` | penal interest **2% per month**, bounce charges **Rs. 590** |
+| `FORECLOSURE_CHARGE` / `PREPAYMENT_CHARGE` | foreclosure charges **4%**; "part-prepayment charges as per schedule" (no value) |
+| `LOAN_AMOUNT` / `EMI` / `TENURE` | loan of **Rs. 5,00,000**; 36 EMIs of **Rs. 16,607**; **36 months** |
+| `DATE` | **15/01/2025** → `2025-01-15` |
+| `TAX` | GST at **18%** |
+| `GRACE_PERIOD` | grace period of **30 days** |
+| `PREMIUM` / `SUM_INSURED` | annual premium **Rs. 18,450**; sum insured **Rs. 5,00,000** |
+| `CO_PAYMENT` / `COVERAGE_LIMIT` / `WAITING_PERIOD` | co-payment of **20%**; room rent capped at **1%** per day; waiting period of **36 months** |
+| `OTHER_FINANCIAL_AMOUNT` / `OTHER_PERCENTAGE` | value with another stated purpose (`attributes.related_to`, e.g. "documentation charges") or no determinable purpose |
+| `DURATION` | time period that is not tenure/grace/waiting (lock-in, validity, cancellation window) |
 
-The CLI prints a summary showing pages, clauses, entities per label, OCR pages, unextracted pages and warnings.
-Exit code: `0` success/partial, `1` failed, `2` bad arguments.
+**Sentence-level condition labels** (span = the whole sentence; `attributes.cues` lists the matched words):
 
-### Visual viewer (local demo)
+| Label | Detects |
+|---|---|
+| `REPAYMENT_CONDITION` | due day (`due_day_of_month`), payment modes (NACH/ECS/PDC), appropriation order |
+| `VARIABLE_INTEREST_CONDITION` | floating rate, benchmark (`repo rate`, MCLR, EBLR…), reset/revision |
+| `DEFAULT_CONDITION` | events of default, recall, legal action, credit-bureau reporting, set-off, recovery agents |
+| `SECURITY_CONDITION` | guarantor, collateral, lien, hypothecation, mortgage |
+| `EXCLUSION` | "not covered", "excluded", "not payable", "will not be liable" |
+| `CANCELLATION_CONDITION` | cancellation, refund, free-look, cooling-off / look-up period, returns |
+| `DISCRETIONARY_CHANGE_CONDITION` | "sole discretion", "reserves the right", "without prior notice" |
 
-```powershell
-cd backend\person1_extraction
-python scripts\demo_server.py          # opens http://127.0.0.1:8765 in your browser
+A charge mentioned **without an amount** is emitted with `normalized_value: null`, `attributes.value_specified: false`
+and any `qualifiers` (e.g. "as per the schedule of charges").
+
+## 7. Plain-language key points
+
+`result.key_points` is a list of `KeyPoint {point_id, category, text, importance, clause_ids, entity_ids,
+page_numbers, source_text, method}`, and every non-heading clause gets `simplified_text`. Example (Northwind demo):
+
+```
+Fees and charges
+  Processing fee (one-time): 1.5% of the Loan amount + GST (non-refundable).
+  ⚠ Foreclosure charge (closing the loan early): 4% of the principal outstanding, if the Loan is foreclosed between the 13th and 24th EMI.
+If you pay late
+  ⚠ Penal interest: 2% a month on the overdue amount (about 24% a year if charged for 12 months).
+If you default
+  ⚠ The lender can report the default to credit information companies (agencies that keep your credit score), which may adversely affect your credit score.
+Worth checking before you sign
+  ⚠ Prepayment charges apply, but no amount is stated in this clause (as per the schedule of charges; prevailing). Ask for the exact amount in writing.
 ```
 
-Upload or drag in a PDF, or click **Sample (digital)** / **Sample (scanned)**. The viewer shows:
+How points are built (`summary/key_points.py`, all deterministic):
+1. **Value points:** `<noun>: <value><details>[, <condition>]`. The noun comes from the label or trigger ("Bounce
+   charges"). Details are basis, bound (up to / minimum), frequency, GST and refundability. A condition tail from the same sentence is
+   kept ("if the loan is foreclosed within 12 months"). Monthly rates show a clearly marked approximate yearly figure.
+2. **Ranges** with the same label are merged ("₹100 to ₹1,300", "13% to 16% a year"); GST in the same sentence is attached to the fee.
+3. **Condition sentences** are rewritten by `simplifier.py` (e.g. "the Borrower shall" → "you must", "in the event of" →
+   "if there is", "shall constitute" → "counts as", "sole discretion" → "own choice"), with one glossary note per jargon term
+   (foreclosure, penal interest, co-payment, NACH, repo rate…). A final check falls back to the original if any number changed.
+4. **Check points**: a charge with no stated amount, unless an amount for that charge exists elsewhere in the document.
+5. **Dates** with a role ("First EMI due: 7 Apr 2025", "Policy period: 1 Apr 2025 to 31 Mar 2026"); **definitions**
+   ("What it means: No Cost EMI means …").
 
-* each page with a coloured box around every extracted entity (dashed underline for sentence-level conditions);
-* an entity table you can filter by label;
-* the clause tree with values highlighted (hover a clause to outline it on the page);
-* the evidence for any entity you click: original vs. normalised value, offsets, rule, trigger and attributes;
-* warnings, excluded header/footer lines, and a JSON download.
+Wording is neutral by design (a test checks that "fraud", "illegal", "unfair", "hidden" never appear).
 
-It uses only the Python standard library (`http.server`) plus this package, listens on localhost only, and keeps
-uploaded PDFs in memory (the 20 most recent documents). It is a developer tool for inspecting Person 1's output, **not**
-the product frontend (Person 3's React app). URL shortcuts for demos: `/?sample=digital`, `/?sample=scanned&tab=clauses`,
-`/?sample=digital&select=entity_0011`.
+## 8. Warnings
 
-## 6. Python API
+Every `ExtractionWarning` has `code`, `severity` (`info`/`warning`), a `message` that says what happened, why, and what
+to do, and `locations` (`page_number`, `bbox`, `text`, `entity_id`, `clause_id`) so the UI can draw it on the page.
+Whole-page warnings use the full-page box.
+
+| Code | Severity | Meaning |
+|---|---|---|
+| `HEADER_FOOTER_EXCLUDED` | info | running header/footer/page-number lines left out of clauses (box per line) |
+| `LOW_OCR_CONFIDENCE` | warning | OCR words below `low_ocr_confidence` (60 %); box + text + confidence per word |
+| `AMBIGUOUS_DATE` | warning | e.g. 07/04/2025 could be 7 Apr or 4 Jul; read as DMY |
+| `UNCLASSIFIED_VALUE` | info | amount/percentage whose purpose the text does not state |
+| `OCR_DISABLED` / `PAGE_NOT_EXTRACTED` | warning | scanned page not read (OCR off / Tesseract missing); status `partial` |
+| `OCR_UNAVAILABLE` / `OCR_FAILED` / `OCR_NOT_USED` | warning/info | Tesseract problems, with install instructions |
+| `EMPTY_PAGE` / `LOW_TEXT_PAGE` | info | blank page / very little text |
+| `SPACY_MODEL_UNAVAILABLE`, `NO_TEXT_EXTRACTED`, `SYNTHETIC_COORDINATES` | warning/info | environment / input notes |
+
+## 9. Output schema
+
+`ExtractionResult` (all fields typed in `schemas.py`; `extraction_version` = `1.1.0`):
+
+| Field | Description |
+|---|---|
+| `document_id`, `filename`, `total_pages`, `extraction_status` | `success` / `partial` / `failed` |
+| `document` | size, sha256, encryption flag, PDF metadata |
+| `pages[]` | size, `extraction_method` (`native`/`ocr`/`none`), `needs_ocr`, `ocr_applied`, `assessment_reason`, `ocr_mean_confidence`, `ocr_deskew_angle`, `ocr_preprocessing`, `blocks[] → lines[] → words[]` (boxes; OCR words carry `ocr_confidence`) |
+| `clauses[]` | ids, type, numbering, hierarchy, heading, `original_text`, `cleaned_text`, `simplified_text`, pages, `source_locations`, `entity_ids`, `financial_sentences` |
+| `entities[]` | label, `surface_text`, `normalized_value`, `numeric_value`, `unit`, `currency`, offsets, `clause_id`, `page_number`, `bboxes`, `extraction_method`, `evidence`, `attributes` |
+| `key_points[]` | plain-language points (section 7) |
+| `warnings[]`, `errors[]` | section 8 |
+| `metadata` | version, OCR/native/empty/unextracted pages, Tesseract & spaCy versions, header/footer lines, label counts, `document_type` (+ evidence), timing |
+
+* Entities are stored once in `result.entities`; clauses reference them by `entity_ids`.
+* `clause.original_text[e.start_offset:e.end_offset] == e.surface_text` always holds; `cleaned_*` offsets index `cleaned_text`.
+* `original_text` joins lines with `\n`, blocks with `\n\n`, and table cells with `\t`. It is never modified.
+* Boxes are in PDF points with a top-left origin; OCR boxes are converted to the same space.
+
+## 10. Python API and CLI
 
 ```python
 from finclause_extraction import analyze_pdf, analyze_pdf_bytes, analyze_text, ExtractionConfig
 
-result = analyze_pdf("data/raw/loan.pdf", use_ocr=True)        # -> ExtractionResult (Pydantic)
-result.extraction_status            # "success" | "partial" | "failed"
-for e in result.entities_by_label("PROCESSING_FEE"):
-    clause = result.get_clause(e.clause_id)
-    print(e.normalized_value, "| page", e.page_number, "| clause", clause.numbering_path, "|", clause.cleaned_text)
+result = analyze_pdf("loan.pdf", use_ocr=True)
+for p in result.key_points:
+    print(p.category, "|", p.text, "| clause", p.clause_ids, "page", p.page_numbers)
+fees = result.entities_by_label("PROCESSING_FEE")
+clause = result.get_clause(fees[0].clause_id)
 
-# custom settings
-cfg = ExtractionConfig(min_native_chars=40, ocr_dpi=300, date_order="DMY", include_words=False)
-result = analyze_pdf("loan.pdf", use_ocr=True, config=cfg, password=None)
-
-# bytes (e.g. an upload) and plain text
-result = analyze_pdf_bytes(pdf_bytes, filename="upload.pdf")
-result = analyze_text("1.1 Processing fee of 2% of the loan amount.")
+result = analyze_pdf("scan.pdf", config=ExtractionConfig(ocr_dpi=300, low_ocr_confidence=70, include_words=False))
+result = analyze_pdf_bytes(upload_bytes, filename="upload.pdf")
 ```
 
-* The functions **do not raise** for bad input. They return `extraction_status="failed"` with `errors=[{code, message}]`
-  (`FILE_NOT_FOUND`, `INVALID_PDF`, `UNSUPPORTED_FORMAT`, `ENCRYPTED_PDF`, `EMPTY_DOCUMENT`, `INTERNAL_ERROR`).
-  Pass `raise_on_error=True` to get exceptions (`PDFNotFoundError`, `InvalidPDFError`, ...).
-* The spaCy pipeline is loaded once per `ExtractionConfig` and cached (`get_pipeline`), so repeated calls are fast.
-* `document_id` defaults to `doc_` + the first 12 hex characters of the file's SHA-256, so the same file always gets
-  the same ID. Clause and entity IDs are sequential in reading order, so they are also stable for the same file and version.
+Functions never raise for bad input by default: they return `extraction_status="failed"` with `errors` (`FILE_NOT_FOUND`,
+`INVALID_PDF`, `UNSUPPORTED_FORMAT`, `ENCRYPTED_PDF`, `EMPTY_DOCUMENT`, `INTERNAL_ERROR`). Pass `raise_on_error=True`
+to get exceptions instead. The spaCy pipeline is loaded once per config and cached. `document_id` = `doc_` + the first 12 hex characters of the file's SHA-256.
 
-## 7. Integration with the main FastAPI backend (for Person 3)
+CLI:
+
+```powershell
+python scripts\run_extraction.py --input data\raw\loan.pdf --output data\processed\loan.json
+python scripts\make_sample_pdf.py            # synthetic sample in data\raw\
+```
+
+Options: `--no-ocr`, `--force-ocr`, `--tesseract-cmd`, `--ocr-lang eng+hin`, `--spacy-model`, `--no-spacy-model`,
+`--no-words`, `--date-order DMY|MDY`, `--password`, `--document-id`, `--compact`, `-v`, `-q`. The summary shows pages,
+clauses, entities per label, OCR pages and warnings. Exit code `0` success/partial, `1` failed, `2` bad arguments.
+
+## 11. Integration for Person 2 and Person 3
 
 ```python
-# backend/app/main.py  (owned by Person 3 – example only, not implemented here)
+# backend/app/main.py (owned by Person 3 – example only)
 from fastapi import FastAPI, UploadFile, HTTPException
 from fastapi.concurrency import run_in_threadpool
-from finclause_extraction import analyze_pdf_bytes, ExtractionResult
+from finclause_extraction import analyze_pdf_bytes, ExtractionConfig, ExtractionResult
 
 app = FastAPI()
+CONFIG = ExtractionConfig(include_words=False)   # word boxes are large; entity boxes are always kept
 
 @app.post("/extract", response_model=ExtractionResult)
 async def extract(file: UploadFile, use_ocr: bool = True):
     data = await file.read()
-    result = await run_in_threadpool(analyze_pdf_bytes, data, file.filename or "upload.pdf", use_ocr)
+    result = await run_in_threadpool(analyze_pdf_bytes, data, file.filename or "upload.pdf", use_ocr, config=CONFIG)
     if result.extraction_status == "failed":
         raise HTTPException(status_code=422, detail=[e.model_dump() for e in result.errors])
     return result
 ```
 
-Notes:
+* **Person 2:** use `clauses[].cleaned_text` (keyed by `clause_id`) for classification, embeddings and contradiction
+  checks; `heading`, `numbering_path`, `parent_clause_id` give structure. Compare entities by `label` +
+  `numeric_value` + `unit` (a `percent_per_month` rate is not comparable to a `percent_per_annum` one). `attributes`
+  holds `basis`, `bound`, `taxes`, `frequency`, `qualifiers`, `value_specified`, `rate_type`, `benchmark`, `refundable`.
+  Sentence-level conditions mark default, security, exclusion, cancellation and discretionary-change terms.
+* **Person 3:** show `key_points` grouped by `category` (titles in `summary.CATEGORY_TITLES`), draw `entities[].bboxes`
+  and `warnings[].locations` on rendered pages, and show `clauses[].simplified_text` next to the original.
+  `demo/index.html` is a working reference for all of this.
 
-* Extraction is CPU-bound and synchronous. Run it in a thread pool (shown above) or a worker queue.
-* `ExtractionResult` is a Pydantic v2 model, so it can be used directly as `response_model`.
-  Use `result.model_dump(mode="json")` to get a plain dict.
-* The output with word boxes is roughly 40–50 KB per page. Use `ExtractionConfig(include_words=False)` for API
-  responses if the UI does not need word boxes (entity `bboxes` are always kept).
+## 12. Demo documents
 
-### How Person 2 should consume the output
+`demo_documents.py` builds five documents on the fly, each available as a digital PDF or a photocopy-style scan.
+**All institutions, names and figures are fictional.** They follow the *format* of real public document types, but no
+real institution's document is reproduced, because attributing invented or outdated figures to a real bank or insurer
+would be misleading.
 
-* **Clause-level work** (classification, embeddings, FAISS, contradiction checks): iterate over `result.clauses` and use
-  `cleaned_text` as the model input. Keep `clause_id` as the key. `heading`, `numbering_path`, `parent_clause_id` and
-  `child_clause_ids` provide structure (e.g. combine a list item with its parent's lead-in sentence).
-  `financial_sentences` gives sentence-level units that already contain financial terms.
-* **Entity-level work**: `result.entities`, joined to clauses on `clause_id`. Compare like with like using `label`,
-  `numeric_value` and `unit`/`currency`. For example, two `INTEREST_RATE` entities with different `unit`
-  (`percent_per_annum` vs `percent_per_month`) are not directly comparable. Monthly rates are never converted to annual.
-* `attributes` holds structured context for detecting overlooked conditions: `basis` ("loan amount", "outstanding principal"),
-  `bound` (upper/lower), `taxes` ("additional"/"included"), `frequency`, `qualifiers` (e.g. "as per schedule of charges"),
-  `value_specified: false` (a charge mentioned without an amount), `rate_type`, `benchmark`.
+| ID | Type | Exercises |
+|---|---|---|
+| `northwind_bank_personal_loan_agreement` | bank loan agreement, 2 pages | header/footer removal, hyphenation, cross-page clause, tiered foreclosure (a)/(b), default & credit-bureau, cooling-off |
+| `sahyadri_finance_key_fact_statement` | NBFC KFS (RBI-style tables) | table rows, APR, floating rate + repo rate, bounce/penal charges, look-up period |
+| `kaveri_cooperative_bank_sanction_letter` | sanction letter (scanned by default) | OCR on a skewed photocopy, guarantor (security), recall clause, validity |
+| `suraksha_health_insurance_policy_terms` | health insurance terms, 2 pages | sum insured, premium, room-rent caps, co-payment, waiting periods, exclusions, free-look & short-period refunds |
+| `shopkart_no_cost_emi_terms` | e-commerce EMI terms | No Cost EMI definition, GST on interest, bank processing fee, tenure lists/ranges, returns, withdrawable offer |
 
-### How Person 3 should use it for highlighting and explanations
+Download any of them from the viewer (⬇ PDF), or run `GET /api/demo/<id>.pdf?scanned=1`.
 
-`entity.page_number` + `entity.bboxes` (PDF points, origin top-left) let you highlight the exact words on the rendered
-page. `clause.source_locations` lets you highlight the whole clause. `evidence.trigger_text` shows why a label was assigned.
+## 13. Tests
 
-## 8. Output schema
-
-`ExtractionResult` (all fields typed in `schemas.py`):
-
-| Field | Description |
-|---|---|
-| `document_id`, `filename`, `total_pages`, `extraction_status` | summary |
-| `document` | `DocumentInfo`: size, sha256, encryption flag, PDF metadata |
-| `pages[]` | `Page`: size, `extraction_method` (`native`/`ocr`/`none`), `needs_ocr`, `ocr_applied`, `is_empty`, `blocks[]` → `lines[]` → `words[]` (with boxes; OCR words carry Tesseract `ocr_confidence`) |
-| `clauses[]` | `Clause`: ids, type, numbering, hierarchy, heading, `original_text`, `cleaned_text`, pages, `source_locations`, `entity_ids`, `financial_sentences` |
-| `entities[]` | `Entity`: label, surface/normalised values, offsets, `clause_id`, page, `bboxes`, method, `evidence`, `attributes` |
-| `warnings[]`, `errors[]` | `{code, message, page_number?}` |
-| `metadata` | version, OCR/native/empty/unextracted pages, Tesseract & spaCy versions, header/footer lines excluded, label counts, timing |
-
-**Entities are stored once**, in `result.entities`. Each clause references its entities by `entity_ids`, so nothing is duplicated.
-
-**Offsets** (also given in `metadata.offset_reference`):
-
-* `Entity.start_offset/end_offset` index into `Clause.original_text`, and
-  `clause.original_text[e.start_offset:e.end_offset] == e.surface_text` always holds.
-* `Entity.cleaned_start_offset/cleaned_end_offset` index into `Clause.cleaned_text`.
-* `SourceLocation.start_offset/end_offset` index into `Clause.original_text`. `Word.char_start/char_end` index into `TextLine.text`.
-* `Clause.original_text` is the concatenation of the clause's source lines: `\n` joins lines within a block and `\n\n`
-  separates blocks/pages. It is never modified by cleaning.
-
-### Example (real output from `data/raw/synthetic_loan_agreement.pdf`, trimmed)
-
-```json
-{
-  "document_id": "doc_65b0cd6c9499",
-  "filename": "synthetic_loan_agreement.pdf",
-  "total_pages": 2,
-  "extraction_status": "success",
-  "clauses": [{
-    "clause_id": "clause_0012",
-    "parent_clause_id": "clause_0010",
-    "clause_type": "subclause",
-    "clause_number": "3.2",
-    "numbering_path": "3.2",
-    "level": 2,
-    "heading": "FEES AND CHARGES",
-    "original_text": "3.2 Late payment charges of Rs. 500 per instance shall apply, and penal interest of 2% per\nmonth shall be levied on the overdue amount.",
-    "cleaned_text": "3.2 Late payment charges of Rs. 500 per instance shall apply, and penal interest of 2% per month shall be levied on the overdue amount.",
-    "page_numbers": [1],
-    "source_locations": [{"page_number": 1, "block_id": "p001_b011", "line_ids": ["p001_b011_l000", "p001_b011_l001"],
-                          "bbox": {"x0": 72.0, "y0": 367.15, "x1": 473.88, "y1": 394.39}, "start_offset": 0, "end_offset": 135}],
-    "entity_ids": ["entity_0010", "entity_0011"],
-    "is_financially_relevant": true
-  }],
-  "entities": [{
-    "entity_id": "entity_0011",
-    "label": "PENALTY",
-    "surface_text": "2% per\nmonth",
-    "cleaned_surface_text": "2% per month",
-    "normalized_value": "2% per month",
-    "numeric_value": 2.0,
-    "unit": "percent_per_month",
-    "currency": null,
-    "start_offset": 84, "end_offset": 96,
-    "cleaned_start_offset": 84, "cleaned_end_offset": 96,
-    "clause_id": "clause_0012",
-    "page_number": 1,
-    "bboxes": [{"x0": 442.2, "y0": 367.15, "x1": 473.88, "y1": 380.89},
-               {"x0": 72.0, "y0": 380.65, "x1": 99.79, "y1": 394.39}],
-    "extraction_method": "regex_context",
-    "evidence": {"rule": "value:percent+trigger:sentence_preceding", "trigger_text": "penal interest",
-                 "trigger_label": "PENALTY", "trigger_source": "sentence_preceding"},
-    "attributes": {"period": "per_month"}
-  }],
-  "warnings": [{"code": "HEADER_FOOTER_EXCLUDED", "message": "2 header/footer/page-number lines excluded from clauses ..."}],
-  "errors": [],
-  "metadata": {"extraction_version": "1.0.0", "ocr_used": false, "nlp_pipeline": "en_core_web_sm 3.8.0", "...": "..."}
-}
+```powershell
+cd backend\person1_extraction
+python -m pytest          # 223 tests
 ```
 
-The value wraps onto a second line, so it has two boxes.
+Covered:
+* PDF validation and extraction;
+* OCR: mocked tests, plus real Tesseract tests that are skipped automatically when Tesseract is not installed. Deskew accuracy, box back-mapping and noise filtering are tested separately;
+* cleaning, including value preservation and OCR digit-group repair;
+* segmentation, including table rows and cross-page clauses;
+* entity extraction, normalisation, the simplifier and key points;
+* end-to-end checks on all five demo documents, digital and real-OCR scanned. The scan must reproduce the key figures of the digital version;
+* the CLI and the demo server.
 
-## 9. Entity labels
+All fixtures are synthetic.
 
-| Label | Meaning | Example |
-|---|---|---|
-| `INTEREST_RATE` | rate of interest, APR, spread | "interest at **12.5% p.a.**" |
-| `PROCESSING_FEE` | processing / login / origination fee | "processing fee of **2%**" |
-| `PENALTY` | late payment, penal/default interest, bounce/dishonour charges | "penal interest of **2% per month**" |
-| `FORECLOSURE_CHARGE` | foreclosure / pre-closure charge | "foreclosure charges of **4%**" |
-| `PREPAYMENT_CHARGE` | prepayment / part-payment charge | "**prepayment charges** subject to applicable conditions" |
-| `LOAN_AMOUNT` | sanctioned / principal / loan amount | "a loan of **Rs. 5,00,000**" |
-| `EMI` | instalment amount | "36 EMIs of **Rs. 16,607**" |
-| `TENURE` | loan term or number of instalments | "tenure of **36 months**", "repayable in **36 EMIs**" |
-| `DATE` | calendar date (ISO-normalised) | "**15/01/2025**" → `2025-01-15` |
-| `OTHER_FINANCIAL_AMOUNT` | money whose role is unknown or is another charge (`attributes.related_to`) | "documentation charges of **Rs. 1,000**" |
-| `REPAYMENT_CONDITION` | sentence-level repayment terms (due day, mode, appropriation order) | "EMI payable on the fifth day of every month" |
-| `VARIABLE_INTEREST_CONDITION` | sentence-level floating/benchmark/reset terms | "floating rate linked to the repo rate" |
-| **`TAX`** *(added)* | GST / tax rate or amount, so tax is not mistaken for a fee or interest | "GST at **18%**" |
-| **`OTHER_PERCENTAGE`** *(added)* | percentage whose meaning cannot be determined, so it is never wrongly called interest | "acknowledges **15%**" |
-| **`DURATION`** *(added)* | time period that is not the loan tenure (grace, notice, lock-in) | "foreclosed within **12 months**" |
+## 14. Limitations and known edge cases
 
-A charge mentioned **without a value** (e.g. "Prepayment charges as per the Schedule of Charges") is emitted with
-`normalized_value: null`, `attributes.value_specified: false` and any `qualifiers`. These are exactly the references
-that Person 2 may want to flag for human review.
-
-### How labels are decided (documented rules)
-
-1. **Values** are found by regex: `₹/Rs./INR/rupees`, Indian and Western digit grouping, `lakh/crore`, `/-`, `%`,
-   `percent`, `per cent`, `bps`, `p.a./p.m./per annum/per month`, numeric and textual dates, and durations
-   ("thirty (30) days"). Overlaps are resolved longest-first, then date > money > %/bps > duration.
-2. **Triggers** ("processing fee", "penal interest", "tenure", ...) are matched by a spaCy `span_ruler` (see
-   `TRIGGERS` in `patterns.py`). Nested matches keep the longest one, so "penal interest" is PENALTY, not interest.
-3. **Context rules** pick the trigger that explains a value. R1: a trigger after the value with a connector
-   ("Rs. 500 **as** late fee"). R2: the nearest applicable trigger before the value in the same sentence; a generic
-   "charges/fee" yields to a specific trigger right after the value. R3: a specific trigger shortly after the value.
-   R4: the parent clause's lead-in ("Foreclosure charges shall be levied as under:" → "(a) 4% …"). R5: the clause
-   heading. R6: otherwise a generic label.
-4. Triggers must suit the value type. "interest" makes a percentage an `INTEREST_RATE`, but a rupee amount near
-   "interest" stays `OTHER_FINANCIAL_AMOUNT`. Words in a value's basis ("2% of the **loan amount**") never label
-   another value.
-5. The pretrained spaCy NER adds DATE/MONEY/PERCENT only where no regex entity overlaps (`extraction_method: spacy_ner`).
-
-`extraction_method` values: `regex_context` (value + trigger), `regex_pattern` (pattern only),
-`spacy_span_ruler` (value-less charge mention), `spacy_ner`, `spacy_custom_model`. `evidence` records the rule and
-trigger. **No confidence scores are invented.** The only scores in the output are Tesseract's own OCR word confidences.
-
-### Plugging in a custom spaCy model later
-
-**No model has been trained in this project yet.** If one is trained later (e.g. on annotations saved in
-`data/annotations/`), save it to `models/` and run with `ExtractionConfig(spacy_model="models/<name>")`. Any entity it
-predicts with a label from the table above is added as `spacy_custom_model` wherever no rule-based entity overlaps.
-The trigger ruler is added on top of the loaded pipeline automatically.
-
-## 10. Normalisation rules
-
-| Input | `normalized_value` | Notes |
-|---|---|---|
-| `₹5,000`, `Rs. 10,000`, `INR 1,25,000` | `5000 INR`, `10000 INR`, `125000 INR` | `currency: "INR"` |
-| `Rs. 2.5 lakh`, `₹5 crore` | `250000 INR`, `50000000 INR` | lakh = 10⁵, crore = 10⁷ |
-| `2.5 lakh`, `10,000/-` (no currency written) | `250000`, `10000` | `currency: null` + `currency_hint`. **The currency is never assumed** |
-| `Rs. 5,000.50` | `5000.50 INR` | written decimal precision kept (Decimal arithmetic) |
-| `12.5% p.a.` / `1.5 percent per month` | `12.5% per annum` / `1.5% per month` | `unit: percent_per_annum` / `percent_per_month`. **Never converted** between periods |
-| `11% (fixed) per annum` | `11% per annum` | period taken from following text (`period_source: following_context`) |
-| `250 basis points` | `250 bps (2.5%)` | `attributes.percent_equivalent` |
-| `05/03/2025` | `2025-03-05` | ambiguous → configured order (DMY), flagged `date_order_assumed` |
-| `3 years` | `3 years` | `attributes.derived_months: "36"` (explicitly derived, separate field) |
-
-Note: the original specification table listed `2.5 lakh → 250000 INR`. Because the specification also says "do not assume
-a missing currency", a bare `2.5 lakh` is normalised to `250000` with `currency: null` plus a hint. When a currency is written
-(`Rs. 2.5 lakh`), the output is `250000 INR` as specified.
-
-## 11. Limitations and known edge cases
-
-* **Layout**: reading order is top-to-bottom, left-to-right. Multi-column pages and complex tables may interleave
-  text. Table cells are extracted as text lines, not as table structure.
-* **Inline enumerations** such as "the Borrower shall (a) pay …; (b) maintain …" written on one line are not split into
-  sub-clauses. Only markers at the start of a line are recognised.
-* **Headings** without bold/uppercase formatting (common in OCR output, which has no font information) are recognised
-  only when they are a single-line block or directly followed by a list.
-* **Unnumbered headings** close the open numbering context. A bold subheading placed between `4.2` and `4.3` becomes
-  the parent of `4.3`.
+* **Accuracy has not been measured on real agreements yet.** The rules were developed on synthetic/fictional documents. No precision/recall figures are claimed.
+* **Layout:** multi-column pages may interleave. Tables are handled as rows of cells; inside a row whose cells wrap
+  onto several lines, text is ordered line by line. Merged cells and nested tables are not reconstructed.
+* **Inline enumerations** ("(a) …; (b) …" on one line) are not split. Only markers at a line start are recognised.
+* **OCR:** preprocessing handles skew up to ±3°, speckles and uneven contrast. Handwriting, stamps over text, heavy
+  blur and non-English scripts will reduce accuracy. Low-confidence words are always flagged with their location.
+* **Plain-language output** is template/rule based. It can be grammatically clumsy for unusual sentences, and it only
+  rewrites, never adds facts. It is not legal advice.
+* **Context rules are heuristics.** Values far from their trigger get generic labels (and an `UNCLASSIFIED_VALUE` warning).
+* **Running headers** are only detected on documents with ≥ 2 pages (on one page they cannot be told apart from body text).
 * **Amounts in words** ("Rupees Five Lakh only") are not converted. The numeric form next to them is extracted.
-* **Context rules are heuristics.** A value far from its trigger (more than 150 characters, configurable), or in a different sentence
-  without a parent/heading cue, gets a generic label. `evidence` shows how every label was reached so reviewers can
-  check it.
-* **Sentence-level conditions** (`REPAYMENT_CONDITION`, `VARIABLE_INTEREST_CONDITION`) span the whole sentence.
-* **Repeated header/footer detection** needs at least 2 pages. Page-number lines are detected on any page.
-* **OCR quality** depends on the scan. OCR text is used as-is (no spell correction), and Tesseract confidences are reported per word.
-  On the synthetic scanned agreement (`make_sample_pdf.py --scanned`, 150 dpi), Tesseract 5.4 read 248 words with a
-  mean confidence of 95.6 and produced the same 20 entities as the digital PDF. The only OCR error was
-  "EMIs" read as "EMls". The EMI patterns tolerate this kind of confusion (`EMl`, `EM1`) without changing the original
-  text. Real scans (skewed, stamped, low-resolution) will be harder and have not been tested yet.
-* **Languages**: English only (Hindi or other languages would need `--ocr-lang` and additional trigger phrases).
-* **Accuracy has not been measured on real agreements yet.** Tests use synthetic documents. No precision/recall
-  figures are claimed.
+* English only (other languages need `--ocr-lang` plus new trigger phrases).
 
-## 12. Remaining work before integration
+## 15. Remaining work
 
-1. Run the pipeline on a few real (redacted) **scanned** agreements to check OCR quality beyond synthetic scans.
-2. Collect a small set of **non-confidential / redacted** real agreements, annotate expected entities in
-   `data/annotations/`, and measure precision/recall per label. Then extend `TRIGGERS` and the patterns based on the misses.
-3. Agree on the JSON contract with Person 2 and Person 3 (this README §8). Changes to `schemas.py` should bump
-   `EXTRACTION_VERSION` in `config.py`.
-4. Person 3: add `pip install -e backend/person1_extraction` (or the requirements) to the backend environment.
+1. Collect a few **redacted real** agreements, policies and KFS documents (digital and scanned), annotate the expected entities in
+   `data/annotations/`, measure precision/recall per label, and extend `TRIGGERS` and the patterns based on the misses.
+2. Agree on the JSON contract (section 9) with Person 2 and Person 3; bump `EXTRACTION_VERSION` on schema changes.
+3. Person 3: install with `pip install -e backend/person1_extraction` in the backend environment.

@@ -48,13 +48,14 @@ from typing import Any, Iterable, Optional
 
 from ..config import ExtractionConfig
 from ..preprocessing.segmenter import is_title_like, split_sentences
-from ..schemas import EntityLabel, Evidence
+from ..schemas import SENTENCE_LEVEL_LABELS, EntityLabel, Evidence
 from . import patterns as P
 from .normalizer import (
     Normalized,
     normalize_bps,
     normalize_date,
     normalize_duration,
+    normalize_duration_options,
     normalize_money,
     normalize_percent,
     parse_ordinal_day,
@@ -70,13 +71,18 @@ _KIND_MAP: dict[str, dict[str, EntityLabel]] = {
         "INTEREST": L.OTHER_FINANCIAL_AMOUNT, "PROCESSING_FEE": L.PROCESSING_FEE, "PENALTY": L.PENALTY,
         "FORECLOSURE": L.FORECLOSURE_CHARGE, "PREPAYMENT": L.PREPAYMENT_CHARGE, "LOAN_AMOUNT": L.LOAN_AMOUNT,
         "EMI": L.EMI, "TAX": L.TAX, "OTHER_CHARGE": L.OTHER_FINANCIAL_AMOUNT,
+        "PREMIUM": L.PREMIUM, "SUM_INSURED": L.SUM_INSURED, "CO_PAYMENT": L.CO_PAYMENT,
+        "LIMIT": L.COVERAGE_LIMIT, "CANCEL": L.OTHER_FINANCIAL_AMOUNT,
     },
     "percent": {
         "INTEREST": L.INTEREST_RATE, "PROCESSING_FEE": L.PROCESSING_FEE, "PENALTY": L.PENALTY,
         "FORECLOSURE": L.FORECLOSURE_CHARGE, "PREPAYMENT": L.PREPAYMENT_CHARGE, "TAX": L.TAX,
-        "OTHER_CHARGE": L.OTHER_PERCENTAGE,
+        "OTHER_CHARGE": L.OTHER_PERCENTAGE, "CO_PAYMENT": L.CO_PAYMENT, "LIMIT": L.COVERAGE_LIMIT,
+        "PREMIUM": L.OTHER_PERCENTAGE, "CANCEL": L.OTHER_PERCENTAGE,
     },
 }
+#: Duration labels chosen by the explaining trigger (anything else -> DURATION).
+_DURATION_MAP = {"TENURE": L.TENURE, "WAITING": L.WAITING_PERIOD, "GRACE": L.GRACE_PERIOD}
 _KIND_MAP["bps"] = _KIND_MAP["percent"]
 _GENERIC = {"money": L.OTHER_FINANCIAL_AMOUNT, "percent": L.OTHER_PERCENTAGE, "bps": L.OTHER_PERCENTAGE}
 _MENTION_LABELS = {
@@ -223,6 +229,11 @@ def find_value_candidates(text: str, date_order: str = "DMY") -> list[ValueCandi
             add("date", "date", m, lambda m: normalize_date(m["d"], m["mon"], m["y"]))
     for m in P.DATE_MONTH_YEAR_RE.finditer(text):
         add("date", "date", m, lambda m: normalize_date(None, m["mon"], m["y"]))
+    for m in P.DURATION_RANGE_RE.finditer(text):
+        add("duration", "duration", m, lambda m: normalize_duration_options([m["lo"], m["hi"]], m["unit"], "range"))
+    for m in P.DURATION_LIST_RE.finditer(text):
+        add("duration", "duration", m, lambda m: normalize_duration_options(
+            [x.strip() for x in m["items"].split(",")] + [m["last"]], m["unit"], "options"))
     for m in P.DURATION_RE.finditer(text):
         add("duration", "duration", m, lambda m: normalize_duration(m["num"] or m["paren"], None if (m["num"] or m["paren"]) else m["word"], m["unit"]))
 
@@ -354,14 +365,18 @@ class FinancialEntityExtractor:
         basis = P.BASIS_RE.match(text[cand.end:s1])
         follow_from = cand.end + (basis.end() if basis else 0)
         if basis:
-            attrs["basis"] = basis.group("basis")
+            attrs["basis"] = re.sub(r"\s+", " ", basis.group("basis"))
+            attrs["basis_preposition"] = basis.group("prep").lower()
         following = [t for t in triggers if t.start >= follow_from and t.end <= s1 and applicable(t)]
         first_following = following[0] if following else None
         if first_following and P.FOLLOWING_CONNECTOR_RE.match(text[follow_from:first_following.start]):
             return first_following, "sentence_following", attrs
         window = self.config.context_window_chars
+        # A tax word only labels a value it directly precedes ("GST at 18%"), not e.g.
+        # "plus GST, subject to a minimum of Rs. 3,000".
         preceding = [t for t in triggers if t.end <= cand.start and t.start >= s0
-                     and cand.start - t.end <= window and applicable(t)]
+                     and cand.start - t.end <= window and applicable(t)
+                     and (t.label != "TAX" or cand.start - t.end <= 15)]
         if preceding:
             nearest = preceding[-1]
             if nearest.text.lower() in P.GENERIC_TRIGGERS and first_following \
@@ -421,12 +436,17 @@ class FinancialEntityExtractor:
                 attrs["taxes"] = "additional"
             elif P.INCL_TAX_RE.search(text[sent[0]:sent[1]]):
                 attrs["taxes"] = "included"
+            if re.search(r"\bnon[-\s]?refundable\b", text[sent[0]:sent[1]], re.I):
+                attrs["refundable"] = False
         if cand.kind == "money":
             freq = P.FREQUENCY_RE.match(after)
             if freq:
                 attrs["frequency"] = "per " + freq.group("freq").lower()
         if cand.kind == "percent" and norm is not None and "period" not in norm.attributes:
             fp = P.FOLLOWING_PERIOD_RE.match(after)
+            if not fp and "basis" in attrs:  # "1% of the Sum Insured per day"
+                bm = P.BASIS_RE.match(after)
+                fp = P.FOLLOWING_PERIOD_RE.match(after[bm.end():]) if bm else None
             if fp:
                 m = P.PERCENT_RE.match(text, cand.start)
                 if m:
@@ -436,8 +456,8 @@ class FinancialEntityExtractor:
         # label
         if cand.kind == "duration":
             unit = norm.unit if norm else None
-            if trigger is not None and trigger.label == "TENURE":
-                label = L.TENURE
+            if trigger is not None and trigger.label in _DURATION_MAP:
+                label = _DURATION_MAP[trigger.label]
             elif unit == "instalments" and (trigger is None or trigger.label in ("EMI", "TENURE")):
                 label, source = L.TENURE, source or "pattern"
             else:
@@ -518,6 +538,30 @@ class FinancialEntityExtractor:
                     Evidence(rule="sentence:repayment_cues", trigger_text=core.group(0), trigger_source="sentence_preceding"),
                     attrs,
                 ))
+            for label, regex, rule in (
+                (L.DEFAULT_CONDITION, P.DEFAULT_CUES_RE, "sentence:default_cues"),
+                (L.EXCLUSION, P.EXCLUSION_CUES_RE, "sentence:exclusion_cues"),
+                (L.CANCELLATION_CONDITION, P.CANCELLATION_CUES_RE, "sentence:cancellation_cues"),
+                (L.DISCRETIONARY_CHANGE_CONDITION, P.DISCRETION_CUES_RE, "sentence:discretion_cues"),
+                (L.SECURITY_CONDITION, P.SECURITY_CUES_RE, "sentence:security_cues"),
+            ):
+                found = list(dict.fromkeys(re.sub(r"\s+", " ", next(g for g in m.groups() if g).lower())
+                                            for m in regex.finditer(sent)))
+                if not found or is_title_like(sent):
+                    continue
+                attrs = {"cues": found}
+                if label == L.CANCELLATION_CONDITION:
+                    if re.search(r"free[-\s]look", sent, re.I):
+                        attrs["free_look"] = True
+                    if re.search(r"refund", sent, re.I):
+                        attrs["refund_mentioned"] = True
+                if label == L.DEFAULT_CONDITION and re.search(r"credit\s+(?:information|bureau)|cibil", sent, re.I):
+                    attrs["credit_bureau_reporting"] = True
+                out.append(RawEntity(
+                    label, s, e, "regex_pattern", Normalized("; ".join(found), None, None, None, {}),
+                    Evidence(rule=rule, trigger_text=", ".join(found), trigger_source="sentence_preceding"),
+                    attrs,
+                ))
         return out
 
     def _charge_mentions(
@@ -534,6 +578,10 @@ class FinancialEntityExtractor:
             seen: set[EntityLabel] = set()
             for t in triggers:
                 if not (s <= t.start < e) or t.label not in _MENTION_LABELS or not P.CHARGE_NOUN_RE.search(t.text):
+                    continue
+                # "without any foreclosure charges", "no prepayment penalty": the charge does NOT apply
+                if re.search(r"\b(?:without(?:\s+any)?|no|nil|free\s+of|waived?|exempt\s+from)\s+(?:\w+\s+)?$",
+                             text[max(0, t.start - 25):t.start], re.I):
                     continue
                 label = _MENTION_LABELS[t.label]
                 if label in seen or any(x.label == label and s <= x.start < e for x in entities):
@@ -557,7 +605,7 @@ class FinancialEntityExtractor:
             if ent.label_ not in self._custom_labels:
                 continue
             if any(_overlaps(ent.start_char, ent.end_char, x.start, x.end) for x in entities + out
-                   if x.label not in (L.REPAYMENT_CONDITION, L.VARIABLE_INTEREST_CONDITION)):
+                   if x.label.value not in SENTENCE_LEVEL_LABELS):
                 continue
             out.append(RawEntity(EntityLabel(ent.label_), ent.start_char, ent.end_char, "spacy_custom_model", None,
                                  Evidence(rule="custom_model_prediction", trigger_source="model")))
