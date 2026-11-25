@@ -31,3 +31,4 @@ Thumbs.db
 
 # Frontend (React)
 node_modules/
+!documents/*.pdf

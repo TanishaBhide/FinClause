@@ -12,9 +12,9 @@ fraudulent or illegal.
 
 | Module | Owner | Status | Location |
 |---|---|---|---|
-| PDF/OCR extraction, clause segmentation, financial entity extraction, plain-language key points | Person 1 | ✅ implemented, 223 tests | [`backend/person1_extraction/`](backend/person1_extraction/README.md) |
-| Clause classification, semantic retrieval, contradiction detection | Person 2 | planned | – |
-| Plain-English explanations, FastAPI integration, React frontend | Person 3 | planned | – |
+| PDF/OCR extraction, clause segmentation, financial entity extraction, plain-language key points | Tanisha | ✅ implemented, 223 tests | [`backend/person1_extraction/`](backend/person1_extraction/README.md) |
+| Clause classification, semantic retrieval, contradiction detection | Umeka | planned | – |
+| Plain-English explanations, FastAPI integration, React frontend | Surabhi | planned | – |
 
 ## Quick start (Windows)
 
